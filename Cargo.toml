@@ -4,9 +4,7 @@ members = ["core/audio_engine"]
 
 [workspace.lints.rust]
 missing_copy_implementations = "warn"
-missing_debug_implementations = "warn"
 rust_2018_idioms = "warn"
-unused_crate_dependencies = "warn"
 unused_qualifications = "warn"
 
 [workspace.lints.clippy]
