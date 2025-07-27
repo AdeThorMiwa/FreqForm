@@ -1,6 +1,11 @@
+use std::sync::{Arc, Mutex};
+
 use super::AudioDeviceManager;
-use crate::device_manager::AudioDeviceError;
-use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+use crate::{device_manager::AudioDeviceError, mixer::Mixer};
+use cpal::{
+    Sample,
+    traits::{DeviceTrait, HostTrait, StreamTrait},
+};
 
 pub struct CpalAudioDeviceManager {
     stream: Option<cpal::Stream>,
@@ -14,15 +19,26 @@ impl CpalAudioDeviceManager {
     fn build_output_stream<T>(
         &self,
         device: &cpal::Device,
-        config: &cpal::StreamConfig,
+        config: cpal::SupportedStreamConfig,
+        mixer: Arc<Mutex<Mixer>>,
     ) -> Result<cpal::Stream, AudioDeviceError>
     where
         T: cpal::SizedSample,
+        T: cpal::FromSample<f32>,
     {
+        let channels = config.channels() as usize;
         let data_cb = move |data: &mut [T], _: &cpal::OutputCallbackInfo| {
+            let frames = data.len() / channels;
+
+            let mixer_samples: Vec<f32> = {
+                let mut local_mixer = mixer.lock().unwrap();
+                local_mixer.mix(frames)
+            };
+
             // fill with silence
-            for sample in data.iter_mut() {
-                *sample = cpal::Sample::EQUILIBRIUM;
+            for (i, sample) in data.iter_mut().enumerate() {
+                let mix_sample = mixer_samples[i].to_sample::<T>();
+                *sample = mix_sample;
             }
         };
 
@@ -31,7 +47,7 @@ impl CpalAudioDeviceManager {
         };
 
         let stream = device
-            .build_output_stream(config, data_cb, error_cb, None)
+            .build_output_stream(&config.into(), data_cb, error_cb, None)
             .map_err(|e| AudioDeviceError::StreamBuildFailed(e.to_string()))?;
 
         Ok(stream)
@@ -39,7 +55,7 @@ impl CpalAudioDeviceManager {
 }
 
 impl AudioDeviceManager for CpalAudioDeviceManager {
-    fn start_output_stream(&mut self) -> Result<(), AudioDeviceError> {
+    fn start_output_stream(&mut self, mixer: Arc<Mutex<Mixer>>) -> Result<(), AudioDeviceError> {
         let host = cpal::default_host();
 
         let device = host
@@ -51,9 +67,9 @@ impl AudioDeviceManager for CpalAudioDeviceManager {
             .map_err(|e| AudioDeviceError::StreamBuildFailed(e.to_string()))?;
 
         let stream = match config.sample_format() {
-            cpal::SampleFormat::F32 => self.build_output_stream::<f32>(&device, &config.into())?,
-            cpal::SampleFormat::I16 => self.build_output_stream::<i16>(&device, &config.into())?,
-            cpal::SampleFormat::U16 => self.build_output_stream::<u16>(&device, &config.into())?,
+            cpal::SampleFormat::F32 => self.build_output_stream::<f32>(&device, config, mixer)?,
+            cpal::SampleFormat::I16 => self.build_output_stream::<i16>(&device, config, mixer)?,
+            cpal::SampleFormat::U16 => self.build_output_stream::<u16>(&device, config, mixer)?,
             format => {
                 return Err(AudioDeviceError::StreamBuildFailed(format!(
                     "Unsupported sample format '{format}'"
@@ -78,7 +94,8 @@ mod tests {
     fn test_cpal_stream_initializes_successfully() {
         let result = std::panic::catch_unwind(|| {
             let mut manager = CpalAudioDeviceManager::new();
-            manager.start_output_stream()
+            let mixer = Arc::new(Mutex::new(Mixer::new()));
+            manager.start_output_stream(mixer)
         });
 
         assert!(result.is_ok(), "Stream should start without panicking");

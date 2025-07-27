@@ -1,6 +1,10 @@
 pub mod gainpan;
+pub mod sinewave;
 
 /// A track produces stereo audio frames (L, R)
-pub trait Track {
+pub trait Track
+where
+    Self: Sync + Send,
+{
     fn next_samples(&mut self, frame_size: usize) -> Vec<(f32, f32)>;
 }
