@@ -1,9 +1,12 @@
-use std::{io::Read, path::Path};
+use std::{ io::Read, path::Path};
 
 use hound::WavReader;
 
 use crate::track::Track;
 
+/// Loads a .wav file and exposes a Track interface to consume samples.
+///
+/// NOTE: Only support `16 bit per sample` for wav files with `Int` sample format for now
 pub struct WavTrack {
     samples: Vec<(f32, f32)>,
     position: usize,
