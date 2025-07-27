@@ -1,5 +1,6 @@
 pub mod gainpan;
 pub mod sinewave;
+pub mod wav;
 
 /// A track produces stereo audio frames (L, R)
 pub trait Track
