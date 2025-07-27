@@ -6,6 +6,7 @@ edition = "2024"
 [dependencies]
 cpal = "0.16.0"
 hound = "3.5.1"
+rtrb = "0.3.2"
 
 [lints]
 workspace = true

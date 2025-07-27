@@ -1,7 +1,10 @@
 use std::sync::{Arc, Mutex};
 
 use super::AudioDeviceManager;
-use crate::{device_manager::AudioDeviceError, scheduler::Scheduler};
+use crate::{
+    device_manager::AudioDeviceError,
+    scheduler::{Scheduler, command::SchedulerCommandConsumer},
+};
 use cpal::{
     Sample,
     traits::{DeviceTrait, HostTrait, StreamTrait},
@@ -21,6 +24,7 @@ impl CpalAudioDeviceManager {
         device: &cpal::Device,
         config: cpal::SupportedStreamConfig,
         scheduler: Arc<Mutex<Scheduler>>,
+        mut command_consumer: SchedulerCommandConsumer,
     ) -> Result<cpal::Stream, AudioDeviceError>
     where
         T: cpal::SizedSample,
@@ -30,10 +34,13 @@ impl CpalAudioDeviceManager {
         let data_cb = move |data: &mut [T], _: &cpal::OutputCallbackInfo| {
             let frames = data.len() / channels;
 
-            let stereo_samples = {
-                let mut sched = scheduler.lock().unwrap();
-                sched.next_samples(frames)
-            };
+            let mut scheduler = scheduler.lock().unwrap();
+
+            while let Ok(cmd) = command_consumer.pop() {
+                scheduler.process_command(cmd);
+            }
+
+            let stereo_samples = scheduler.next_samples(frames);
 
             for (i, sample) in data.iter_mut().enumerate() {
                 let channel = i % 2; // wrap 
@@ -59,9 +66,10 @@ impl CpalAudioDeviceManager {
 }
 
 impl AudioDeviceManager for CpalAudioDeviceManager {
-    fn start_output_stream(
+    fn start_output_stream<'a>(
         &mut self,
         scheduler: Arc<Mutex<Scheduler>>,
+        command_consumer: SchedulerCommandConsumer,
     ) -> Result<(), AudioDeviceError> {
         let host = cpal::default_host();
 
@@ -75,13 +83,13 @@ impl AudioDeviceManager for CpalAudioDeviceManager {
 
         let stream = match config.sample_format() {
             cpal::SampleFormat::F32 => {
-                self.build_output_stream::<f32>(&device, config, scheduler)?
+                self.build_output_stream::<f32>(&device, config, scheduler, command_consumer)?
             }
             cpal::SampleFormat::I16 => {
-                self.build_output_stream::<i16>(&device, config, scheduler)?
+                self.build_output_stream::<i16>(&device, config, scheduler, command_consumer)?
             }
             cpal::SampleFormat::U16 => {
-                self.build_output_stream::<u16>(&device, config, scheduler)?
+                self.build_output_stream::<u16>(&device, config, scheduler, command_consumer)?
             }
             format => {
                 return Err(AudioDeviceError::StreamBuildFailed(format!(
@@ -108,7 +116,8 @@ mod tests {
         let result = std::panic::catch_unwind(|| {
             let mut manager = CpalAudioDeviceManager::new();
             let scheduler = Arc::new(Mutex::new(Scheduler::new()));
-            manager.start_output_stream(scheduler)
+            let (_, cons) = rtrb::RingBuffer::new(10);
+            manager.start_output_stream(scheduler, cons)
         });
 
         assert!(result.is_ok(), "Stream should start without panicking");

@@ -1,7 +1,11 @@
 use std::collections::BinaryHeap;
 
-use crate::{scheduler::track::ScheduledTrack, track::Track};
+use crate::{
+    scheduler::{command::SchedulerCommand, track::ScheduledTrack},
+    track::Track,
+};
 
+pub mod command;
 pub mod track;
 
 pub struct Scheduler {
@@ -22,7 +26,15 @@ impl Scheduler {
         }
     }
 
-    pub fn schedule(&mut self, track: Box<dyn Track>, start_frame: u64) {
+    pub fn process_command(&mut self, cmd: SchedulerCommand) {
+        match cmd {
+            SchedulerCommand::ScheduleTrack { track, start_frame } => {
+                self.schedule(track, start_frame)
+            }
+        }
+    }
+
+    fn schedule(&mut self, track: Box<dyn Track>, start_frame: u64) {
         self.scheduled.push(ScheduledTrack { track, start_frame });
     }
 

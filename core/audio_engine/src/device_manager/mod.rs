@@ -1,4 +1,4 @@
-use crate::scheduler::Scheduler;
+use crate::scheduler::{Scheduler, command::SchedulerCommandConsumer};
 use std::sync::{Arc, Mutex};
 
 pub mod cpal_dm;
@@ -11,6 +11,9 @@ pub enum AudioDeviceError {
 }
 
 pub trait AudioDeviceManager {
-    fn start_output_stream(&mut self, mixer: Arc<Mutex<Scheduler>>)
-    -> Result<(), AudioDeviceError>;
+    fn start_output_stream<'a>(
+        &mut self,
+        mixer: Arc<Mutex<Scheduler>>,
+        command_consumer: SchedulerCommandConsumer,
+    ) -> Result<(), AudioDeviceError>;
 }
