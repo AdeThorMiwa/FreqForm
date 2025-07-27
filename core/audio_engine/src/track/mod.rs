@@ -1,3 +1,4 @@
+pub mod constant;
 pub mod gainpan;
 pub mod sinewave;
 pub mod wav;

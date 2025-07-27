@@ -75,11 +75,11 @@ impl Track for WavTrack {
 
 #[cfg(test)]
 mod tests {
+    use crate::constants::AUDIO_SAMPLE_EPSILON;
+
     use super::*;
     use hound::WavSpec;
     use std::io::Cursor;
-
-    const SAMPLE_EPSILON: f32 = 1e-6;
 
     fn create_wav_buffer(spec: WavSpec, samples: &[i16]) -> Cursor<Vec<u8>> {
         let mut buffer = Cursor::new(Vec::new());
@@ -107,8 +107,8 @@ mod tests {
 
         let output = track.next_samples(2);
         assert_eq!(output.len(), 2);
-        assert!((output[0].0 - output[0].1).abs() < SAMPLE_EPSILON); // L = R
-        assert!((output[1].0 - output[1].1).abs() < SAMPLE_EPSILON);
+        assert!((output[0].0 - output[0].1).abs() < AUDIO_SAMPLE_EPSILON); // L = R
+        assert!((output[1].0 - output[1].1).abs() < AUDIO_SAMPLE_EPSILON);
     }
 
     #[test]

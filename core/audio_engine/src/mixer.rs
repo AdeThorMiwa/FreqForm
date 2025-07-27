@@ -38,27 +38,8 @@ impl Mixer {
 
 #[cfg(test)]
 mod tests {
-    use crate::track::gainpan::GainPanTrack;
-
     use super::*;
-
-    struct ConstantTrack {
-        sample: (f32, f32),
-    }
-
-    impl ConstantTrack {
-        fn new(left: f32, right: f32) -> Self {
-            Self {
-                sample: (left, right),
-            }
-        }
-    }
-
-    impl Track for ConstantTrack {
-        fn next_samples(&mut self, num_frames: usize) -> Vec<(f32, f32)> {
-            vec![self.sample; num_frames]
-        }
-    }
+    use crate::track::{constant::ConstantTrack, gainpan::GainPanTrack};
 
     #[test]
     fn test_gain_one_pan_center_should_preserve_sample() {

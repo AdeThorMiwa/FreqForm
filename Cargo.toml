@@ -3,7 +3,6 @@ resolver = "3"
 members = ["core/audio_engine"]
 
 [workspace.lints.rust]
-missing_copy_implementations = "warn"
 rust_2018_idioms = "warn"
 unused_qualifications = "warn"
 
