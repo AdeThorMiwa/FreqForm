@@ -22,9 +22,9 @@ fn main() {
 
     match manager.start_output_stream(mixer) {
         Ok(_) => {
-            println!("🎧 Audio stream started. Playing silence...");
+            println!("Audio stream started.");
             std::thread::park(); // Keep main alive to keep stream alive
         }
-        Err(e) => eprintln!("❌ Failed to start audio stream: {:?}", e),
+        Err(e) => eprintln!("Failed to start audio stream: {:?}", e),
     }
 }
