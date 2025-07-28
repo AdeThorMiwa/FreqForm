@@ -24,19 +24,17 @@ impl Track for SineWaveTrack {
         "sine-wave-track".to_owned()
     }
 
-    fn next_samples(&mut self, frame_size: usize) -> Vec<(f32, f32)> {
-        let mut result = Vec::with_capacity(frame_size);
+    fn fill_next_samples(&mut self, next_samples: &mut [(f32, f32)]) {
         let phase_increment = 2.0 * PI * self.freq / self.sample_rate;
 
-        for _ in 0..frame_size {
+        for (l, r) in next_samples {
             let sample = (self.phase).sin();
-            result.push((sample, sample));
+            *l = sample;
+            *r = sample;
             self.phase += phase_increment;
             if self.phase >= 2.0 * PI {
                 self.phase -= 2.0 * PI;
             }
         }
-
-        result
     }
 }

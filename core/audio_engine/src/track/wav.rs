@@ -65,18 +65,11 @@ impl Track for WavTrack {
         "wav-track".to_owned()
     }
 
-    fn next_samples(&mut self, frame_size: usize) -> Vec<(f32, f32)> {
-        let end = (self.position + frame_size).min(self.samples.len());
-        let slice = &self.samples[self.position..end];
+    fn fill_next_samples(&mut self, next_samples: &mut [(f32, f32)]) {
+        let end = (self.position + next_samples.len()).min(self.samples.len());
+        let _ = &next_samples[..(end - self.position)]
+            .copy_from_slice(&self.samples[self.position..end]);
         self.position = end;
-
-        // If we’re at EOF, return silence
-        let mut result: Vec<(f32, f32)> = slice.to_vec();
-        while result.len() < frame_size {
-            result.push((0.0, 0.0));
-        }
-
-        result
     }
 
     fn reset(&mut self) {

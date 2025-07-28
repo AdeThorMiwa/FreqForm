@@ -64,6 +64,7 @@ impl Scheduler {
     }
 
     pub fn next_samples(&mut self, frame_size: usize) -> Vec<(f32, f32)> {
+        // @audit allocation here, needs review
         let mut buffer = vec![(0.0f32, 0.0f32); frame_size];
 
         while let Ok(cmd) = self.automation_events.pop() {
@@ -73,15 +74,18 @@ impl Scheduler {
         while let Some(top) = self.scheduled.peek() {
             if top.start_frame <= self.current_frame {
                 let ScheduledTrack { track, .. } = self.scheduled.pop().unwrap();
+                // @audit possible allocation here
                 self.active_tracks.push(track);
             } else {
                 break;
             }
         }
 
+        // @audit allocation here, needs review
+        let mut tmp_buffer = vec![(0.0f32, 0.0f32); frame_size];
         for track in self.active_tracks.iter_mut() {
-            let samples = track.next_samples(frame_size);
-            for (i, (l, r)) in samples.into_iter().enumerate() {
+            track.fill_next_samples(&mut tmp_buffer[..]);
+            for (i, (l, r)) in tmp_buffer.iter().enumerate() {
                 buffer[i].0 += l;
                 buffer[i].1 += r;
             }
@@ -95,7 +99,7 @@ impl Scheduler {
         self.active_tracks.retain(|track| track.id() != target_id);
     }
 
-    fn fill_sample<T>(&self, data: &mut [T], samples: Vec<(f32, f32)>)
+    fn fill_sample<T>(&self, data: &mut [T], samples: &[(f32, f32)])
     where
         T: cpal::FromSample<f32>,
     {
@@ -117,13 +121,13 @@ impl AudioSource for Scheduler {
 
         match buffer {
             AudioSourceBufferKind::F32(data) => {
-                self.fill_sample(data, stereo_samples);
+                self.fill_sample(data, &stereo_samples[..]);
             }
             AudioSourceBufferKind::I16(data) => {
-                self.fill_sample(data, stereo_samples);
+                self.fill_sample(data, &stereo_samples[..]);
             }
             AudioSourceBufferKind::U16(data) => {
-                self.fill_sample(data, stereo_samples);
+                self.fill_sample(data, &stereo_samples[..]);
             }
         }
     }

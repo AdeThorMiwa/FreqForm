@@ -28,20 +28,17 @@ impl Track for GainPanTrack {
         self.id.clone()
     }
 
-    fn next_samples(&mut self, frame_size: usize) -> Vec<(f32, f32)> {
-        // TODO: review panning logic here
+    fn fill_next_samples(&mut self, next_samples: &mut [(f32, f32)]) {
+        // @todo review panning logic here
         let pan_l = (1.0 - self.pan.clamp(-1.0, 1.0)) * 0.5;
         let pan_r = (1.0 + self.pan.clamp(-1.0, 1.0)) * 0.5;
 
-        let samples = self.inner.next_samples(frame_size).into_iter();
+        self.inner.fill_next_samples(next_samples);
 
-        let apply_gain_and_pan = move |(l, r)| {
-            let l = l * self.gain * pan_l;
-            let r = r * self.gain * pan_r;
-            (l, r)
-        };
-
-        samples.map(apply_gain_and_pan).collect()
+        for (l, r) in next_samples.iter_mut() {
+            *l = *l * self.gain * pan_l;
+            *r = *r * self.gain * pan_r;
+        }
     }
 
     fn apply_param_change(&mut self, id: &str, change: &ParameterChange) {

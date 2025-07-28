@@ -7,6 +7,7 @@ pub enum ParameterChange {
     SetPan(f32),
 }
 
+// @todo change this to automation events
 pub enum SchedulerCommand {
     ScheduleTrack {
         track: Box<dyn Track>,

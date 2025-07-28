@@ -17,7 +17,9 @@ impl Track for ConstantTrack {
         "constant-track".to_string()
     }
 
-    fn next_samples(&mut self, num_frames: usize) -> Vec<(f32, f32)> {
-        vec![self.sample; num_frames]
+    fn fill_next_samples(&mut self, next_sample: &mut [(f32, f32)]) {
+        for sample in next_sample.iter_mut() {
+            *sample = self.sample;
+        }
     }
 }
