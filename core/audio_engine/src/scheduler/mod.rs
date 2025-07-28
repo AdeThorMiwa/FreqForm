@@ -36,6 +36,18 @@ impl Scheduler {
                     track.apply_param_change(&target_id, &change);
                 }
             }
+            SchedulerCommand::StopTrack { target_id } => {
+                self.stop_track(target_id);
+            }
+            SchedulerCommand::RestartTrack { target_id } => {
+                if let Some(track) = self
+                    .active_tracks
+                    .iter_mut()
+                    .find(|track| track.id() == target_id)
+                {
+                    track.reset();
+                }
+            }
         }
     }
 
@@ -66,6 +78,10 @@ impl Scheduler {
         self.current_frame += frame_size as u64;
         buffer
     }
+
+    fn stop_track(&mut self, target_id: String) {
+        self.active_tracks.retain(|track| track.id() != target_id);
+    }
 }
 
 #[cfg(test)]
@@ -74,7 +90,7 @@ mod tests {
     use crate::{
         constants::AUDIO_SAMPLE_EPSILON,
         scheduler::command::ParameterChange,
-        track::{constant::ConstantTrack, gainpan::GainPanTrack},
+        track::{constant::ConstantTrack, gainpan::GainPanTrack, wav::WavTrack},
     };
 
     fn sum_energy(buffer: &[(f32, f32)]) -> f32 {
@@ -149,5 +165,48 @@ mod tests {
         let output = scheduler.next_samples(1);
         assert!((output[0].0 - 0.125).abs() < AUDIO_SAMPLE_EPSILON); // (1.0 * 0.25 * 0.5 pan_l)
         assert!((output[0].1 - 0.125).abs() < AUDIO_SAMPLE_EPSILON);
+    }
+
+    #[test]
+    fn test_stop_track_removes_it_from_output() {
+        let gpt = GainPanTrack::new("test-id", Box::new(ConstantTrack::new(0.5, 0.5)), 1.0, 0.0);
+        let mut sched = Scheduler::new();
+        sched.schedule(Box::new(gpt), 0);
+
+        sched.next_samples(1); // Activate
+
+        // Stop the track
+        sched.process_command(SchedulerCommand::StopTrack {
+            target_id: "test-id".into(),
+        });
+
+        let out = sched.next_samples(1);
+        assert_eq!(out[0], (0.0, 0.0)); // No output = stopped
+    }
+
+    #[test]
+    fn test_restart_resets_playback_position() {
+        let samples = vec![(1.0, 1.0), (0.5, 0.5), (0.0, 0.0)];
+        let wav = WavTrack {
+            samples: samples.clone(),
+            position: 0,
+        };
+
+        let gain = GainPanTrack::new("track-id", Box::new(wav), 1.0, 0.0);
+        let mut sched = Scheduler::new();
+        sched.schedule(Box::new(gain), 0);
+
+        let out1 = sched.next_samples(1); // (1.0, 1.0)
+        let out2 = sched.next_samples(1); // (0.5, 0.5)
+
+        sched.process_command(SchedulerCommand::RestartTrack {
+            target_id: "track-id".to_string(),
+        });
+
+        let out3 = sched.next_samples(1); // should reset to (1.0, 1.0)
+
+        assert_eq!(out1[0], (0.5, 0.5)); // 1.0 * 1.0 * 0.5
+        assert_eq!(out2[0], (0.25, 0.25));
+        assert_eq!(out3[0], (0.5, 0.5)); // confirms retrigger
     }
 }

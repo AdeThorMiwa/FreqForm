@@ -20,6 +20,10 @@ impl SineWaveTrack {
 }
 
 impl Track for SineWaveTrack {
+    fn id(&self) -> String {
+        "sine-wave-track".to_owned()
+    }
+
     fn next_samples(&mut self, frame_size: usize) -> Vec<(f32, f32)> {
         let mut result = Vec::with_capacity(frame_size);
         let phase_increment = 2.0 * PI * self.freq / self.sample_rate;

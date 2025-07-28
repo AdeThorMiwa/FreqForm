@@ -13,6 +13,10 @@ impl ConstantTrack {
 }
 
 impl Track for ConstantTrack {
+    fn id(&self) -> String {
+        "constant-track".to_string()
+    }
+
     fn next_samples(&mut self, num_frames: usize) -> Vec<(f32, f32)> {
         vec![self.sample; num_frames]
     }

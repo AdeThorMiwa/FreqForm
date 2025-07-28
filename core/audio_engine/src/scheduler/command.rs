@@ -16,6 +16,12 @@ pub enum SchedulerCommand {
         target_id: String,
         change: ParameterChange,
     },
+    StopTrack {
+        target_id: String,
+    },
+    RestartTrack {
+        target_id: String,
+    },
 }
 
 pub type SchedulerCommandConsumer = Consumer<SchedulerCommand>;

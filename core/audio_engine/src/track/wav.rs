@@ -1,4 +1,4 @@
-use std::{ io::Read, path::Path};
+use std::{io::Read, path::Path};
 
 use hound::WavReader;
 
@@ -8,8 +8,8 @@ use crate::track::Track;
 ///
 /// NOTE: Only support `16 bit per sample` for wav files with `Int` sample format for now
 pub struct WavTrack {
-    samples: Vec<(f32, f32)>,
-    position: usize,
+    pub(crate) samples: Vec<(f32, f32)>,
+    pub(crate) position: usize,
 }
 
 impl WavTrack {
@@ -61,6 +61,10 @@ impl WavTrack {
 }
 
 impl Track for WavTrack {
+    fn id(&self) -> String {
+        "wav-track".to_owned()
+    }
+
     fn next_samples(&mut self, frame_size: usize) -> Vec<(f32, f32)> {
         let end = (self.position + frame_size).min(self.samples.len());
         let slice = &self.samples[self.position..end];
@@ -73,6 +77,10 @@ impl Track for WavTrack {
         }
 
         result
+    }
+
+    fn reset(&mut self) {
+        self.position = 0;
     }
 }
 

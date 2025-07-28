@@ -24,7 +24,12 @@ impl GainPanTrack {
 }
 
 impl Track for GainPanTrack {
+    fn id(&self) -> String {
+        self.id.clone()
+    }
+
     fn next_samples(&mut self, frame_size: usize) -> Vec<(f32, f32)> {
+        // TODO: review panning logic here
         let pan_l = (1.0 - self.pan.clamp(-1.0, 1.0)) * 0.5;
         let pan_r = (1.0 + self.pan.clamp(-1.0, 1.0)) * 0.5;
 
@@ -53,5 +58,9 @@ impl Track for GainPanTrack {
                 self.pan = *val;
             }
         }
+    }
+
+    fn reset(&mut self) {
+        self.inner.reset();
     }
 }
