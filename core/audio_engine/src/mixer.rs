@@ -44,7 +44,7 @@ mod tests {
     #[test]
     fn test_gain_one_pan_center_should_preserve_sample() {
         let track = ConstantTrack::new(1.0, 1.0);
-        let mut wrapped = GainPanTrack::new(Box::new(track), 1.0, 0.0);
+        let mut wrapped = GainPanTrack::new("x-track", Box::new(track), 1.0, 0.0);
 
         let samples = wrapped.next_samples(1);
         assert_eq!(samples[0].0, 0.5); // (1.0 * 1.0 * 0.5)
@@ -54,7 +54,7 @@ mod tests {
     #[test]
     fn test_gain_half_pan_center_should_reduce_volume_evenly() {
         let track = ConstantTrack::new(1.0, 1.0);
-        let mut wrapped = GainPanTrack::new(Box::new(track), 0.5, 0.0);
+        let mut wrapped = GainPanTrack::new("x-track", Box::new(track), 0.5, 0.0);
 
         let samples = wrapped.next_samples(1);
         assert_eq!(samples[0].0, 0.25); // (1.0 * 0.5 * 0.5)
@@ -64,7 +64,7 @@ mod tests {
     #[test]
     fn test_pan_left_should_output_left_only() {
         let track = ConstantTrack::new(1.0, 1.0);
-        let mut wrapped = GainPanTrack::new(Box::new(track), 1.0, -1.0);
+        let mut wrapped = GainPanTrack::new("x-track", Box::new(track), 1.0, -1.0);
 
         let samples = wrapped.next_samples(1);
         assert_eq!(samples[0].0, 1.0); // Left channel full
@@ -74,7 +74,7 @@ mod tests {
     #[test]
     fn test_pan_right_should_output_right_only() {
         let track = ConstantTrack::new(1.0, 1.0);
-        let mut wrapped = GainPanTrack::new(Box::new(track), 1.0, 1.0);
+        let mut wrapped = GainPanTrack::new("x-track", Box::new(track), 1.0, 1.0);
 
         let samples = wrapped.next_samples(1);
         assert_eq!(samples[0].0, 0.0); // Left muted

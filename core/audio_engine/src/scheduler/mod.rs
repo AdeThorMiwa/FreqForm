@@ -31,6 +31,11 @@ impl Scheduler {
             SchedulerCommand::ScheduleTrack { track, start_frame } => {
                 self.schedule(track, start_frame)
             }
+            SchedulerCommand::ParamChange { target_id, change } => {
+                for track in self.active_tracks.iter_mut() {
+                    track.apply_param_change(&target_id, &change);
+                }
+            }
         }
     }
 
@@ -66,7 +71,11 @@ impl Scheduler {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{constants::AUDIO_SAMPLE_EPSILON, track::constant::ConstantTrack};
+    use crate::{
+        constants::AUDIO_SAMPLE_EPSILON,
+        scheduler::command::ParameterChange,
+        track::{constant::ConstantTrack, gainpan::GainPanTrack},
+    };
 
     fn sum_energy(buffer: &[(f32, f32)]) -> f32 {
         buffer.iter().map(|(l, r)| l.abs() + r.abs()).sum()
@@ -121,5 +130,24 @@ mod tests {
         let out2 = sched.next_samples(2);
         assert_eq!(out2.len(), 2);
         assert!((out2[0].0 - 0.5).abs() < AUDIO_SAMPLE_EPSILON);
+    }
+
+    #[test]
+    fn test_gain_change_applies_during_playback() {
+        let gain_track =
+            GainPanTrack::new("x-track", Box::new(ConstantTrack::new(1.0, 1.0)), 1.0, 0.0);
+        let mut scheduler = Scheduler::new();
+
+        scheduler.schedule(Box::new(gain_track), 0);
+        scheduler.next_samples(1); // activate
+
+        scheduler.process_command(SchedulerCommand::ParamChange {
+            target_id: "x-track".to_string(),
+            change: ParameterChange::SetGain(0.25),
+        });
+
+        let output = scheduler.next_samples(1);
+        assert!((output[0].0 - 0.125).abs() < AUDIO_SAMPLE_EPSILON); // (1.0 * 0.25 * 0.5 pan_l)
+        assert!((output[0].1 - 0.125).abs() < AUDIO_SAMPLE_EPSILON);
     }
 }

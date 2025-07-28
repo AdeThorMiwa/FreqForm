@@ -2,10 +2,19 @@ use rtrb::Consumer;
 
 use crate::track::Track;
 
+pub enum ParameterChange {
+    SetGain(f32),
+    SetPan(f32),
+}
+
 pub enum SchedulerCommand {
     ScheduleTrack {
         track: Box<dyn Track>,
         start_frame: u64,
+    },
+    ParamChange {
+        target_id: String,
+        change: ParameterChange,
     },
 }
 

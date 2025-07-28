@@ -1,3 +1,5 @@
+use crate::scheduler::command::ParameterChange;
+
 pub mod constant;
 pub mod gainpan;
 pub mod sinewave;
@@ -9,4 +11,5 @@ where
     Self: Sync + Send,
 {
     fn next_samples(&mut self, frame_size: usize) -> Vec<(f32, f32)>;
+    fn apply_param_change(&mut self, _id: &str, _change: &ParameterChange) {}
 }

@@ -1,6 +1,8 @@
-use crate::track::Track;
+use crate::{scheduler::command::ParameterChange, track::Track};
 
 pub struct GainPanTrack {
+    /// track id
+    id: String,
     inner: Box<dyn Track>,
     /// Controls signal amplitude (volume).
     /// Multiplies volume (0.0 to 1.0+)
@@ -11,8 +13,13 @@ pub struct GainPanTrack {
 }
 
 impl GainPanTrack {
-    pub fn new(inner: Box<dyn Track>, gain: f32, pan: f32) -> Self {
-        Self { inner, gain, pan }
+    pub fn new(id: &str, inner: Box<dyn Track>, gain: f32, pan: f32) -> Self {
+        Self {
+            id: id.to_string(),
+            inner,
+            gain,
+            pan,
+        }
     }
 }
 
@@ -30,5 +37,21 @@ impl Track for GainPanTrack {
         };
 
         samples.map(apply_gain_and_pan).collect()
+    }
+
+    fn apply_param_change(&mut self, id: &str, change: &ParameterChange) {
+        if self.id != id {
+            self.inner.apply_param_change(id, change);
+            return;
+        }
+
+        match change {
+            ParameterChange::SetGain(val) => {
+                self.gain = *val;
+            }
+            ParameterChange::SetPan(val) => {
+                self.pan = *val;
+            }
+        }
     }
 }
