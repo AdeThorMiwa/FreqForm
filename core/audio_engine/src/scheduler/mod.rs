@@ -1,7 +1,13 @@
 use std::collections::BinaryHeap;
 
+use cpal::Sample;
+
 use crate::{
-    scheduler::{command::SchedulerCommand, track::ScheduledTrack},
+    device_manager::{AudioSource, AudioSourceBufferKind},
+    scheduler::{
+        command::{SchedulerCommand, SchedulerCommandConsumer},
+        track::ScheduledTrack,
+    },
     track::Track,
 };
 
@@ -15,14 +21,16 @@ pub struct Scheduler {
     active_tracks: Vec<Box<dyn Track>>,
     /// the current timeline position (starts at 0)
     current_frame: u64,
+    automation_events: SchedulerCommandConsumer,
 }
 
 impl Scheduler {
-    pub fn new() -> Self {
+    pub fn new(consumer: SchedulerCommandConsumer) -> Self {
         Self {
             scheduled: BinaryHeap::new(),
             active_tracks: Vec::new(),
             current_frame: 0,
+            automation_events: consumer,
         }
     }
 
@@ -58,6 +66,10 @@ impl Scheduler {
     pub fn next_samples(&mut self, frame_size: usize) -> Vec<(f32, f32)> {
         let mut buffer = vec![(0.0f32, 0.0f32); frame_size];
 
+        while let Ok(cmd) = self.automation_events.pop() {
+            self.process_command(cmd);
+        }
+
         while let Some(top) = self.scheduled.peek() {
             if top.start_frame <= self.current_frame {
                 let ScheduledTrack { track, .. } = self.scheduled.pop().unwrap();
@@ -82,10 +94,45 @@ impl Scheduler {
     fn stop_track(&mut self, target_id: String) {
         self.active_tracks.retain(|track| track.id() != target_id);
     }
+
+    fn fill_sample<T>(&self, data: &mut [T], samples: Vec<(f32, f32)>)
+    where
+        T: cpal::FromSample<f32>,
+    {
+        for (i, sample) in data.iter_mut().enumerate() {
+            let channel = i % 2; // wrap 
+            let raw_sample = if channel == 0 {
+                samples[i / 2].0
+            } else {
+                samples[i / 2].1
+            };
+            *sample = raw_sample.to_sample::<T>();
+        }
+    }
+}
+
+impl AudioSource for Scheduler {
+    fn fill_buffer(&mut self, buffer: AudioSourceBufferKind<'_>, frame_size: usize) {
+        let stereo_samples = self.next_samples(frame_size);
+
+        match buffer {
+            AudioSourceBufferKind::F32(data) => {
+                self.fill_sample(data, stereo_samples);
+            }
+            AudioSourceBufferKind::I16(data) => {
+                self.fill_sample(data, stereo_samples);
+            }
+            AudioSourceBufferKind::U16(data) => {
+                self.fill_sample(data, stereo_samples);
+            }
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
+    use rtrb::RingBuffer;
+
     use super::*;
     use crate::{
         constants::AUDIO_SAMPLE_EPSILON,
@@ -99,7 +146,8 @@ mod tests {
 
     #[test]
     fn test_track_scheduled_at_zero_plays_immediately() {
-        let mut sched = Scheduler::new();
+        let (_, consumer) = RingBuffer::new(1);
+        let mut sched = Scheduler::new(consumer);
         sched.schedule(Box::new(ConstantTrack::new(0.1, 0.1)), 0);
 
         let output = sched.next_samples(4);
@@ -109,7 +157,8 @@ mod tests {
 
     #[test]
     fn test_track_scheduled_in_future_does_not_play_early() {
-        let mut sched = Scheduler::new();
+        let (_, consumer) = RingBuffer::new(1);
+        let mut sched = Scheduler::new(consumer);
         sched.schedule(Box::new(ConstantTrack::new(1.0, 1.0)), 100);
 
         let output = sched.next_samples(10); // still before frame 100
@@ -125,7 +174,8 @@ mod tests {
 
     #[test]
     fn test_multiple_tracks_mixed_properly() {
-        let mut sched = Scheduler::new();
+        let (_, consumer) = RingBuffer::new(1);
+        let mut sched = Scheduler::new(consumer);
         sched.schedule(Box::new(ConstantTrack::new(0.3, 0.3)), 0);
         sched.schedule(Box::new(ConstantTrack::new(0.5, 0.5)), 0);
 
@@ -137,7 +187,8 @@ mod tests {
 
     #[test]
     fn test_track_starts_midway_and_mixes_correctly() {
-        let mut sched = Scheduler::new();
+        let (_, consumer) = RingBuffer::new(1);
+        let mut sched = Scheduler::new(consumer);
         sched.schedule(Box::new(ConstantTrack::new(0.5, 0.5)), 4); // start late
 
         let out1 = sched.next_samples(4);
@@ -152,7 +203,8 @@ mod tests {
     fn test_gain_change_applies_during_playback() {
         let gain_track =
             GainPanTrack::new("x-track", Box::new(ConstantTrack::new(1.0, 1.0)), 1.0, 0.0);
-        let mut scheduler = Scheduler::new();
+        let (_, consumer) = RingBuffer::new(1);
+        let mut scheduler = Scheduler::new(consumer);
 
         scheduler.schedule(Box::new(gain_track), 0);
         scheduler.next_samples(1); // activate
@@ -170,7 +222,8 @@ mod tests {
     #[test]
     fn test_stop_track_removes_it_from_output() {
         let gpt = GainPanTrack::new("test-id", Box::new(ConstantTrack::new(0.5, 0.5)), 1.0, 0.0);
-        let mut sched = Scheduler::new();
+        let (_, consumer) = RingBuffer::new(1);
+        let mut sched = Scheduler::new(consumer);
         sched.schedule(Box::new(gpt), 0);
 
         sched.next_samples(1); // Activate
@@ -193,7 +246,8 @@ mod tests {
         };
 
         let gain = GainPanTrack::new("track-id", Box::new(wav), 1.0, 0.0);
-        let mut sched = Scheduler::new();
+        let (_, consumer) = RingBuffer::new(1);
+        let mut sched = Scheduler::new(consumer);
         sched.schedule(Box::new(gain), 0);
 
         let out1 = sched.next_samples(1); // (1.0, 1.0)

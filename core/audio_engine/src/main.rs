@@ -1,5 +1,3 @@
-use std::sync::{Arc, Mutex};
-
 use audio_engine::{
     device_manager::{AudioDeviceManager, cpal_dm::CpalAudioDeviceManager},
     scheduler::{
@@ -11,16 +9,12 @@ use audio_engine::{
 
 fn main() {
     let (mut prod, cons) = rtrb::RingBuffer::<SchedulerCommand>::new(128);
-    let scheduler = Scheduler::new();
-
-    // TODO: abstract this into an interface that expose a readable stream for
-    // output manager to consume
-    let stream = Arc::new(Mutex::new(scheduler));
+    let audio_source = Box::new(Scheduler::new(cons));
     // make this into a factory
     let mut manager = CpalAudioDeviceManager::new();
 
     manager
-        .start_output_stream(stream.clone(), cons)
+        .start_output_stream(audio_source)
         .expect("Failed to start audio stream");
 
     println!("Stream started");

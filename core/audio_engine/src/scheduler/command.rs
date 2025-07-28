@@ -35,8 +35,8 @@ mod tests {
 
     #[test]
     fn test_schedule_command_adds_track_correctly() {
-        let (mut producer, mut consumer) = RingBuffer::new(4);
-        let mut scheduler = Scheduler::new();
+        let (mut producer, consumer) = RingBuffer::new(4);
+        let mut scheduler = Scheduler::new(consumer);
 
         // Push command to ring
         let success = producer.push(SchedulerCommand::ScheduleTrack {
@@ -44,11 +44,6 @@ mod tests {
             start_frame: 0,
         });
         assert!(success.is_ok(), "Should be able to enqueue command");
-
-        // Consume in audio thread
-        while let Ok(cmd) = consumer.pop() {
-            scheduler.process_command(cmd);
-        }
 
         // Should now have one active track
         let output = scheduler.next_samples(2);
@@ -58,8 +53,8 @@ mod tests {
 
     #[test]
     fn test_scheduled_track_via_command_plays_at_correct_time() {
-        let (mut producer, mut consumer) = RingBuffer::new(4);
-        let mut scheduler = Scheduler::new();
+        let (mut producer, consumer) = RingBuffer::new(4);
+        let mut scheduler = Scheduler::new(consumer);
 
         // Send command for track to start at frame 3
         producer
@@ -68,9 +63,6 @@ mod tests {
                 start_frame: 3,
             })
             .expect("Failed to enqueue");
-
-        // Simulate realtime callback pulling commands
-        scheduler.process_command(consumer.pop().unwrap());
 
         // Advance scheduler past frame 3
         let silent = scheduler.next_samples(3);
