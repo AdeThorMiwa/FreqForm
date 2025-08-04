@@ -4,45 +4,38 @@ use hound::WavReader;
 
 use crate::track::Track;
 
-/// Loads a .wav file and exposes a Track interface to consume samples.
+/// `WavTrack` represents an in-memory, stereo-normalized PCM buffer loaded from a `.wav` file.
 ///
-/// NOTE: Only support `16 bit per sample` for wav files with `Int` sample format for now
+/// Supports:
+/// - Mono and Stereo files (mono is duplicated into both channels)
+/// - 16-bit integer or 32-bit float samples (converted to `f32`)
+///
+/// Does NOT support:
+/// - More than 2 channels
+/// - Sample rates ≠ project sample rate (no resampling yet)
+///
+/// # Example
+/// ```rust
+/// let track = WavTrack::from_file("sound.wav").unwrap();
+/// ```
 pub struct WavTrack {
+    /// Interleaved stereo frames
     pub(crate) samples: Vec<(f32, f32)>,
+    /// Current read position (frame index)
     pub(crate) position: usize,
 }
 
 impl WavTrack {
-    fn new<R: Read + Send + 'static>(reader: WavReader<R>) -> Result<Self, String> {
+    fn from_reader<R: Read + Send + 'static>(reader: WavReader<R>) -> Result<Self, String> {
         let spec = reader.spec();
         let channels = spec.channels;
         if channels == 0 || channels > 2 {
             return Err("Only mono or stereo WAVs are supported".into());
         }
 
-        let samples: Vec<f32> = match spec.sample_format {
-            hound::SampleFormat::Int => reader
-                .into_samples::<i16>()
-                .filter_map(Result::ok)
-                .map(|s| s as f32 / i16::MAX as f32)
-                .collect(),
-            hound::SampleFormat::Float => reader
-                .into_samples::<f32>()
-                .filter_map(Result::ok)
-                .collect(),
-        };
-
-        let stereo_samples: Vec<(f32, f32)> = if channels == 1 {
-            samples.iter().map(|&s| (s, s)).collect()
-        } else {
-            samples
-                .chunks(2)
-                .map(|chunk| (chunk[0], chunk[1]))
-                .collect()
-        };
-
+        let pcm_samples = Self::decode_pcm_samples(reader)?;
         Ok(Self {
-            samples: stereo_samples,
+            samples: pcm_samples,
             position: 0,
         })
     }
@@ -50,13 +43,48 @@ impl WavTrack {
     pub fn from_file<P: AsRef<Path>>(path: P) -> Result<Self, String> {
         let reader =
             WavReader::open(path).map_err(|e| format!("Failed to open WAV file: {}", e))?;
-        Self::new(reader)
+        Self::from_reader(reader)
     }
 
-    pub fn from_reader<R: Read + Send + 'static>(reader: R) -> Result<Self, String> {
+    pub fn from_stream<R: Read + Send + 'static>(stream: R) -> Result<Self, String> {
         let reader =
-            WavReader::new(reader).map_err(|e| format!("Failed to open WAV file: {}", e))?;
-        Self::new(reader)
+            WavReader::new(stream).map_err(|e| format!("Failed to parse WAV stream: {}", e))?;
+        Self::from_reader(reader)
+    }
+
+    fn decode_pcm_samples<R: Read + Send + 'static>(
+        reader: WavReader<R>,
+    ) -> Result<Vec<(f32, f32)>, String> {
+        let spec = reader.spec();
+        let raw_samples = match spec.sample_format {
+            hound::SampleFormat::Int => reader
+                .into_samples::<i16>()
+                .filter_map(Result::ok)
+                .map(|s| s as f32 / i16::MAX as f32)
+                .collect::<Vec<f32>>(),
+            hound::SampleFormat::Float => reader
+                .into_samples::<f32>()
+                .filter_map(Result::ok)
+                .collect::<Vec<f32>>(),
+        };
+
+        Ok(Self::interleave_channels(
+            raw_samples,
+            spec.channels as usize,
+        ))
+    }
+
+    /// Converts raw f32 samples into stereo `(L, R)` frames.
+    /// Mono is duplicated into both channels.
+    fn interleave_channels(samples: Vec<f32>, channels: usize) -> Vec<(f32, f32)> {
+        match channels {
+            1 => samples.into_iter().map(|s| (s, s)).collect(),
+            2 => samples
+                .chunks_exact(2)
+                .map(|chunk| (chunk[0], chunk[1]))
+                .collect(),
+            _ => unreachable!("Unsupported channel count"),
+        }
     }
 }
 
@@ -107,7 +135,7 @@ mod tests {
 
         let samples = [1000, -1000]; // short mono buffer
         let buffer = create_wav_buffer(spec, &samples);
-        let mut track = WavTrack::from_reader(buffer).unwrap();
+        let mut track = WavTrack::from_stream(buffer).unwrap();
 
         let output = track.next_samples(2);
         assert_eq!(output.len(), 2);
@@ -126,7 +154,7 @@ mod tests {
 
         let samples = [2000];
         let buffer = create_wav_buffer(spec, &samples);
-        let mut track = WavTrack::from_reader(buffer).unwrap();
+        let mut track = WavTrack::from_stream(buffer).unwrap();
 
         let output = track.next_samples(3); // request more than exists
         assert_eq!(output.len(), 3);
@@ -146,7 +174,7 @@ mod tests {
 
         let samples = [0; 6];
         let buffer = create_wav_buffer(spec, &samples);
-        let result = WavTrack::from_reader(buffer);
+        let result = WavTrack::from_stream(buffer);
         assert!(result.is_err());
     }
 }
