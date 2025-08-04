@@ -100,7 +100,7 @@ mod tests {
         let result = std::panic::catch_unwind(|| {
             let mut manager = CpalAudioDeviceManager::new();
             let (_, cons) = RingBuffer::new(1);
-            let audio_source = Box::new(Scheduler::new(cons));
+            let audio_source = Box::new(Scheduler::new(cons, 44100.0));
             manager.start_output_stream(audio_source)
         });
 

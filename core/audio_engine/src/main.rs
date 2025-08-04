@@ -9,7 +9,7 @@ use audio_engine::{
 
 fn main() {
     let (mut prod, cons) = rtrb::RingBuffer::<SchedulerCommand>::new(128);
-    let audio_source = Box::new(Scheduler::new(cons));
+    let audio_source = Box::new(Scheduler::new(cons, 44100.0));
     // make this into a factory
     let mut manager = CpalAudioDeviceManager::new();
 

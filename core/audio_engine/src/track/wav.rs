@@ -15,8 +15,10 @@ use crate::track::Track;
 /// - Sample rates ≠ project sample rate (no resampling yet)
 ///
 /// # Example
-/// ```rust
-/// let track = WavTrack::from_file("sound.wav").unwrap();
+/// ```no_run
+/// use audio_engine::track::wav::WavTrack;
+///
+/// let track = WavTrack::from_file("assets/wav/piano.wav").unwrap();
 /// ```
 pub struct WavTrack {
     /// Interleaved stereo frames

@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["core/audio_engine"]
+members = ["core/audio_engine", "core/transport"]
 
 [workspace.lints.rust]
 rust_2018_idioms = "warn"
