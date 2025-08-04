@@ -15,6 +15,15 @@ use crate::{
 pub mod command;
 pub mod track;
 
+pub struct LoopPoints {
+    pub start_bar: u64,
+    pub start_beat: u64,
+    pub start_tick: u64,
+    pub end_bar: u64,
+    pub end_beat: u64,
+    pub end_tick: u64,
+}
+
 pub struct Scheduler {
     /// a queue of future tracks
     scheduled: BinaryHeap<ScheduledTrack>,
@@ -23,10 +32,15 @@ pub struct Scheduler {
     /// the current timeline position (starts at 0)
     current_frame: u64,
     automation_events: SchedulerCommandConsumer,
-    /// NEW: Global tempo clock
+    /// Global tempo clock
     tempo_clock: TempoClock,
-    /// NEW: Sample rate, injected at runtime
+    /// Sample rate, injected at runtime
     sample_rate: f64,
+
+    looping_enabled: bool,
+    loop_points: Option<LoopPoints>,
+    loop_start_frame: u64,
+    loop_end_frame: u64,
 }
 
 impl Scheduler {
@@ -42,6 +56,10 @@ impl Scheduler {
             automation_events: consumer,
             tempo_clock,
             sample_rate,
+            looping_enabled: false,
+            loop_points: None,
+            loop_start_frame: 0,
+            loop_end_frame: 0,
         }
     }
 
@@ -69,6 +87,38 @@ impl Scheduler {
             }
             SchedulerCommand::SetTempo { bpm, resolution } => {
                 self.tempo_clock = TempoClock::new(bpm, self.sample_rate, resolution);
+            }
+            SchedulerCommand::SetLoop {
+                enabled,
+                start,
+                end,
+            } => {
+                self.looping_enabled = enabled;
+
+                if enabled {
+                    let loop_points = LoopPoints {
+                        start_bar: start.0,
+                        start_beat: start.1,
+                        start_tick: start.2,
+                        end_bar: end.0,
+                        end_beat: end.1,
+                        end_tick: end.2,
+                    };
+
+                    let start_ticks = self.bbt_to_tick_count(&loop_points, true);
+                    let end_ticks = self.bbt_to_tick_count(&loop_points, false);
+
+                    let start_frame =
+                        (start_ticks as f64 * self.tempo_clock.samples_per_tick()).round() as u64;
+                    let end_frame =
+                        (end_ticks as f64 * self.tempo_clock.samples_per_tick()).round() as u64;
+
+                    self.loop_points = Some(loop_points);
+                    self.loop_start_frame = start_frame;
+                    self.loop_end_frame = end_frame;
+                } else {
+                    self.loop_points = None;
+                }
             }
         }
     }
@@ -107,8 +157,15 @@ impl Scheduler {
 
         // Advance the tempo clock by the number of samples processed
         self.tempo_clock.advance_by(frame_size as u64);
-
         self.current_frame += frame_size as u64;
+
+        // Loop wrap logic
+        if self.looping_enabled && self.current_frame >= self.loop_end_frame {
+            self.current_frame = self.loop_start_frame;
+            self.tempo_clock.reset();
+            self.tempo_clock.advance_by(self.current_frame); // Sync tick position to loop start
+        }
+
         buffer
     }
 
@@ -122,6 +179,31 @@ impl Scheduler {
 
     pub fn tick_phase(&self) -> f64 {
         self.tempo_clock.tick_phase()
+    }
+
+    fn bbt_to_tick_count(&self, loop_points: &LoopPoints, start: bool) -> u64 {
+        let (bar, beat, tick) = if start {
+            (
+                loop_points.start_bar,
+                loop_points.start_beat,
+                loop_points.start_tick,
+            )
+        } else {
+            (
+                loop_points.end_bar,
+                loop_points.end_beat,
+                loop_points.end_tick,
+            )
+        };
+
+        let ticks_per_beat = self.tempo_clock.ticks_per_beat;
+        let beats_per_bar = self.tempo_clock.time_signature.beats_per_bar;
+
+        let total_ticks = ((bar - 1) * beats_per_bar * ticks_per_beat)
+            + ((beat - 1) * ticks_per_beat)
+            + (tick - 1);
+
+        total_ticks
     }
 
     fn fill_sample<T>(&self, data: &mut [T], samples: &[(f32, f32)])
@@ -159,8 +241,20 @@ impl AudioSource for Scheduler {
 }
 
 #[cfg(test)]
-mod tests {
+mod test_util {
+    use crate::scheduler::{Scheduler, command::SchedulerCommand};
     use rtrb::{Producer, RingBuffer};
+
+    pub fn create_scheduler_with_channel() -> (Scheduler, Producer<SchedulerCommand>) {
+        let (producer, consumer) = RingBuffer::new(32);
+        let scheduler = Scheduler::new(consumer, 44100.0);
+        (scheduler, producer)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use rtrb::RingBuffer;
 
     use super::*;
     use crate::{
@@ -169,19 +263,13 @@ mod tests {
         track::{constant::ConstantTrack, gainpan::GainPanTrack, wav::WavTrack},
     };
 
-    fn create_scheduler_with_channel() -> (Scheduler, Producer<SchedulerCommand>) {
-        let (producer, consumer) = RingBuffer::new(32);
-        let scheduler = Scheduler::new(consumer, 44100.0);
-        (scheduler, producer)
-    }
-
     fn sum_energy(buffer: &[(f32, f32)]) -> f32 {
         buffer.iter().map(|(l, r)| l.abs() + r.abs()).sum()
     }
 
     #[test]
     fn test_track_scheduled_at_zero_plays_immediately() {
-        let (mut sched, _) = create_scheduler_with_channel();
+        let (mut sched, _) = test_util::create_scheduler_with_channel();
         sched.schedule(Box::new(ConstantTrack::new(0.1, 0.1)), 0);
 
         let output = sched.next_samples(4);
@@ -191,7 +279,7 @@ mod tests {
 
     #[test]
     fn test_track_scheduled_in_future_does_not_play_early() {
-        let (mut sched, _) = create_scheduler_with_channel();
+        let (mut sched, _) = test_util::create_scheduler_with_channel();
         sched.schedule(Box::new(ConstantTrack::new(1.0, 1.0)), 100);
 
         let output = sched.next_samples(10); // still before frame 100
@@ -207,7 +295,7 @@ mod tests {
 
     #[test]
     fn test_multiple_tracks_mixed_properly() {
-        let (mut sched, _) = create_scheduler_with_channel();
+        let (mut sched, _) = test_util::create_scheduler_with_channel();
         sched.schedule(Box::new(ConstantTrack::new(0.3, 0.3)), 0);
         sched.schedule(Box::new(ConstantTrack::new(0.5, 0.5)), 0);
 
@@ -219,7 +307,7 @@ mod tests {
 
     #[test]
     fn test_track_starts_midway_and_mixes_correctly() {
-        let (mut sched, _) = create_scheduler_with_channel();
+        let (mut sched, _) = test_util::create_scheduler_with_channel();
         sched.schedule(Box::new(ConstantTrack::new(0.5, 0.5)), 4); // start late
 
         let out1 = sched.next_samples(4);
@@ -234,7 +322,7 @@ mod tests {
     fn test_gain_change_applies_during_playback() {
         let gain_track =
             GainPanTrack::new("x-track", Box::new(ConstantTrack::new(1.0, 1.0)), 1.0, 0.0);
-        let (mut scheduler, _) = create_scheduler_with_channel();
+        let (mut scheduler, _) = test_util::create_scheduler_with_channel();
 
         scheduler.schedule(Box::new(gain_track), 0);
         scheduler.next_samples(1); // activate
@@ -252,7 +340,7 @@ mod tests {
     #[test]
     fn test_stop_track_removes_it_from_output() {
         let gpt = GainPanTrack::new("test-id", Box::new(ConstantTrack::new(0.5, 0.5)), 1.0, 0.0);
-        let (mut sched, _) = create_scheduler_with_channel();
+        let (mut sched, _) = test_util::create_scheduler_with_channel();
         sched.schedule(Box::new(gpt), 0);
 
         sched.next_samples(1); // Activate
@@ -275,7 +363,7 @@ mod tests {
         };
 
         let gain = GainPanTrack::new("track-id", Box::new(wav), 1.0, 0.0);
-        let (mut sched, _) = create_scheduler_with_channel();
+        let (mut sched, _) = test_util::create_scheduler_with_channel();
         sched.schedule(Box::new(gain), 0);
 
         let out1 = sched.next_samples(1); // (1.0, 1.0)
@@ -294,7 +382,7 @@ mod tests {
 
     #[test]
     fn test_schedule_command_adds_track_correctly() {
-        let (mut scheduler, mut producer) = create_scheduler_with_channel();
+        let (mut scheduler, mut producer) = test_util::create_scheduler_with_channel();
 
         // Push command to ring
         let success = producer.push(SchedulerCommand::ScheduleTrack {
@@ -311,7 +399,7 @@ mod tests {
 
     #[test]
     fn test_scheduled_track_via_command_plays_at_correct_time() {
-        let (mut scheduler, mut producer) = create_scheduler_with_channel();
+        let (mut scheduler, mut producer) = test_util::create_scheduler_with_channel();
 
         // Send command for track to start at frame 3
         producer
@@ -364,7 +452,7 @@ mod tests {
 
     #[test]
     fn test_clock_advances_with_next_samples() {
-        let (mut scheduler, _) = create_scheduler_with_channel();
+        let (mut scheduler, _) = test_util::create_scheduler_with_channel();
 
         // 16th note = 5512.5 samples at 120 BPM
         scheduler.next_samples(5513); // cross one 16th note
@@ -373,7 +461,7 @@ mod tests {
 
     #[test]
     fn test_tick_phase_after_partial_advancement() {
-        let (mut scheduler, _) = create_scheduler_with_channel();
+        let (mut scheduler, _) = test_util::create_scheduler_with_channel();
 
         scheduler.next_samples(2756); // half of 5512.5
         let phase = scheduler.tick_phase();
@@ -382,7 +470,7 @@ mod tests {
 
     #[test]
     fn test_set_tempo_resets_clock() {
-        let (mut scheduler, mut producer) = create_scheduler_with_channel();
+        let (mut scheduler, mut producer) = test_util::create_scheduler_with_channel();
 
         scheduler.next_samples(5513); // advance by one 16th note
         assert_eq!(scheduler.current_tick(), 1);
@@ -400,5 +488,111 @@ mod tests {
         // At 60 BPM, quarter note = 44100 samples
         scheduler.next_samples(44100);
         assert_eq!(scheduler.current_tick(), 1);
+    }
+}
+
+#[cfg(test)]
+mod scheduler_loop_tests {
+    use super::*;
+
+    #[test]
+    fn test_loop_point_setup_and_conversion() {
+        let (mut scheduler, mut prod) = test_util::create_scheduler_with_channel();
+
+        prod.push(SchedulerCommand::SetLoop {
+            enabled: true,
+            start: (1, 1, 1),
+            end: (2, 1, 1),
+        })
+        .unwrap();
+
+        scheduler.next_samples(1); // process command
+
+        assert!(scheduler.looping_enabled);
+        assert!(scheduler.loop_points.is_some());
+
+        // 4/4 time, 4 ticks/beat: 16 ticks/bar
+        // start_tick = 0, end_tick = 16
+        let expected_start_frame = 0;
+        let expected_end_frame = (16.0 * scheduler.tempo_clock.samples_per_tick()).round() as u64;
+
+        assert_eq!(scheduler.loop_start_frame, expected_start_frame);
+        assert_eq!(scheduler.loop_end_frame, expected_end_frame);
+    }
+
+    #[test]
+    fn test_looping_wraps_current_frame() {
+        let (mut scheduler, mut prod) = test_util::create_scheduler_with_channel();
+
+        prod.push(SchedulerCommand::SetLoop {
+            enabled: true,
+            start: (1, 1, 1),
+            end: (1, 2, 1), // beat 2, tick 1 = tick 4
+        })
+        .unwrap();
+
+        scheduler.next_samples(1); // process command
+
+        let loop_end = scheduler.loop_end_frame;
+
+        // Advance just past end frame
+        scheduler.next_samples(loop_end as usize + 1);
+
+        // Should wrap to start frame (0)
+        assert_eq!(scheduler.current_frame, scheduler.loop_start_frame);
+    }
+
+    #[test]
+    fn test_tick_sync_after_loop_wrap() {
+        let (mut scheduler, mut prod) = test_util::create_scheduler_with_channel();
+
+        prod.push(SchedulerCommand::SetLoop {
+            enabled: true,
+            start: (1, 1, 1),
+            end: (1, 2, 1),
+        })
+        .unwrap();
+
+        scheduler.next_samples(1); // process command
+
+        let loop_end = scheduler.loop_end_frame;
+
+        scheduler.next_samples(loop_end as usize + 1);
+
+        // After wrap, tick should be synced to current_frame
+        let expected_tick_float =
+            scheduler.current_frame as f64 / scheduler.tempo_clock.samples_per_tick();
+        let expected_tick = expected_tick_float.floor() as u64;
+
+        assert_eq!(scheduler.current_tick(), expected_tick);
+    }
+
+    #[test]
+    fn test_looping_disabled_no_wrap() {
+        let (mut scheduler, mut prod) = test_util::create_scheduler_with_channel();
+
+        prod.push(SchedulerCommand::SetLoop {
+            enabled: true,
+            start: (1, 1, 1),
+            end: (1, 2, 1),
+        })
+        .unwrap();
+
+        scheduler.next_samples(1); // process command
+
+        prod.push(SchedulerCommand::SetLoop {
+            enabled: false,
+            start: (1, 1, 1),
+            end: (1, 2, 1),
+        })
+        .unwrap();
+
+        scheduler.next_samples(1); // disable command
+
+        let loop_end = scheduler.loop_end_frame;
+        scheduler.next_samples(loop_end as usize + 1);
+
+        // Should not wrap
+        assert!(scheduler.current_frame > scheduler.loop_end_frame);
     }
 }

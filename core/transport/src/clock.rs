@@ -15,8 +15,8 @@ pub struct TempoClock {
     sample_position: f64,
     tick_counter: u64,
     running: bool,
-    time_signature: TimeSignature,
-    ticks_per_beat: u64,
+    pub time_signature: TimeSignature,
+    pub ticks_per_beat: u64,
 }
 
 impl TempoClock {

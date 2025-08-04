@@ -24,10 +24,15 @@ pub enum SchedulerCommand {
     RestartTrack {
         target_id: String,
     },
-    /// NEW: Tempo change command
+    /// Tempo change command
     SetTempo {
         bpm: f64,
         resolution: TickResolution,
+    },
+    SetLoop {
+        enabled: bool,
+        start: (u64, u64, u64),
+        end: (u64, u64, u64),
     },
 }
 
