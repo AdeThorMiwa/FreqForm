@@ -6,10 +6,12 @@ use audio_engine::{
     },
     track::{gainpan::GainPanTrack, wav::WavTrack},
 };
+use transport::{clock::TempoClock, resolution::TickResolution};
 
 fn main() {
     let (mut prod, cons) = rtrb::RingBuffer::<SchedulerCommand>::new(128);
-    let audio_source = Box::new(Scheduler::new(cons, 44100.0));
+    let tempo_clock = TempoClock::new(120.0, 44100.0, TickResolution::Sixteenth);
+    let audio_source = Box::new(Scheduler::new(cons, tempo_clock));
     // make this into a factory
     let mut manager = CpalAudioDeviceManager::new();
 

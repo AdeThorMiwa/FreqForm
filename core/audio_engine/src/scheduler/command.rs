@@ -8,6 +8,12 @@ pub enum ParameterChange {
     SetPan(f32),
 }
 
+pub struct LoopOptions {
+    pub bar: u64,
+    pub beat: u64,
+    pub tick: u64,
+}
+
 // @todo change this to automation events
 pub enum SchedulerCommand {
     ScheduleTrack {
@@ -31,9 +37,12 @@ pub enum SchedulerCommand {
     },
     SetLoop {
         enabled: bool,
-        start: (u64, u64, u64),
-        end: (u64, u64, u64),
+        start: LoopOptions,
+        end: LoopOptions,
     },
+    Play,
+    Pause,
+    Stop,
 }
 
 pub type SchedulerCommandConsumer = Consumer<SchedulerCommand>;

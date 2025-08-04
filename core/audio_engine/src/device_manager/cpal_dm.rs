@@ -94,13 +94,15 @@ mod tests {
     use super::*;
     use crate::scheduler::Scheduler;
     use rtrb::RingBuffer;
+    use transport::{clock::TempoClock, resolution::TickResolution};
 
     #[test]
     fn test_cpal_stream_initializes_successfully() {
         let result = std::panic::catch_unwind(|| {
             let mut manager = CpalAudioDeviceManager::new();
             let (_, cons) = RingBuffer::new(1);
-            let audio_source = Box::new(Scheduler::new(cons, 44100.0));
+            let tempo_clock = TempoClock::new(120.0, 44100.0, TickResolution::Sixteenth);
+            let audio_source = Box::new(Scheduler::new(cons, tempo_clock));
             manager.start_output_stream(audio_source)
         });
 

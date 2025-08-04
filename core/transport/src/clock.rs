@@ -9,14 +9,13 @@ pub struct TimeSignature {
 // @todo move to core::transport
 pub struct TempoClock {
     bpm: f64,
-    sample_rate: f64,
-    resolution: TickResolution,
     samples_per_tick: f64,
     sample_position: f64,
     tick_counter: u64,
     running: bool,
     pub time_signature: TimeSignature,
     pub ticks_per_beat: u64,
+    sample_rate: f64,
 }
 
 impl TempoClock {
@@ -25,13 +24,12 @@ impl TempoClock {
             beats_per_bar: 4,
             beat_unit: 4,
         };
-        Self::with_signature(bpm, sample_rate, resolution, time_signature, 4)
+        Self::with_signature(bpm, sample_rate, resolution, time_signature)
     }
 
-    fn compute_samples_per_tick(bpm: f64, sample_rate: f64, resolution: &TickResolution) -> f64 {
-        let beats_per_second = bpm / 60.0;
-        let seconds_per_beat = 1.0 / beats_per_second;
-        let seconds_per_tick = seconds_per_beat / resolution.divisor();
+    fn compute_samples_per_tick(bpm: f64, sample_rate: f64, ticks_per_beat: u64) -> f64 {
+        let seconds_per_beat = 60.0 / bpm;
+        let seconds_per_tick = seconds_per_beat / ticks_per_beat as f64;
         sample_rate * seconds_per_tick
     }
 
@@ -53,6 +51,11 @@ impl TempoClock {
             tick_emitted = true;
         }
 
+        println!(
+            "tick counter: {} spt: {} bpm: {}",
+            self.tick_counter, self.samples_per_tick, self.bpm
+        );
+
         tick_emitted
     }
 
@@ -62,6 +65,10 @@ impl TempoClock {
 
     pub fn tick_phase(&self) -> f64 {
         self.sample_position / self.samples_per_tick
+    }
+
+    pub fn sample_rate(&self) -> f64 {
+        self.sample_rate
     }
 
     pub fn start(&mut self) {
@@ -82,19 +89,19 @@ impl TempoClock {
         sample_rate: f64,
         resolution: TickResolution,
         time_signature: TimeSignature,
-        ticks_per_beat: u64,
     ) -> Self {
-        let samples_per_tick = TempoClock::compute_samples_per_tick(bpm, sample_rate, &resolution);
+        let ticks_per_beat = resolution.ticks_per_beat();
+        let samples_per_tick =
+            TempoClock::compute_samples_per_tick(bpm, sample_rate, ticks_per_beat);
         Self {
             bpm,
-            sample_rate,
-            resolution,
             samples_per_tick,
             sample_position: 0.0,
             tick_counter: 0,
             running: true,
             time_signature,
             ticks_per_beat,
+            sample_rate,
         }
     }
 
@@ -128,14 +135,15 @@ mod temp_clock_base_tests {
     fn test_samples_per_tick_calculation() {
         let clock = TempoClock::new(120.0, SAMPLE_RATE, TickResolution::Sixteenth);
         // At 120 BPM, quarter note = 0.5 sec, 16th = 0.125 sec
-        // samples_per_tick = 44100 * 0.125 = 5512.5
-        assert!((clock.samples_per_tick() - 5512.5).abs() < 0.01);
+        // sample_rate / (bpm / 60 * ticks_per_beat)
+        // samples_per_tick = 44100 / (120.0 / 60 * 120) = 183.75
+        assert!((clock.samples_per_tick() - 183.75).abs() < 0.01);
     }
 
     #[test]
     fn test_no_tick_emitted_before_threshold() {
         let mut clock = TempoClock::new(120.0, SAMPLE_RATE, TickResolution::Quarter);
-        let tick_emitted = clock.advance_by(1000);
+        let tick_emitted = clock.advance_by(40); // threshold is 45
         assert!(!tick_emitted);
     }
 
@@ -145,7 +153,7 @@ mod temp_clock_base_tests {
         // 120 BPM -> 0.5s per quarter -> 22050 samples
         let tick_emitted = clock.advance_by(22050);
         assert!(tick_emitted);
-        assert_eq!(clock.current_tick(), 1);
+        assert_eq!(clock.current_tick(), 480);
     }
 
     #[test]
@@ -158,7 +166,7 @@ mod temp_clock_base_tests {
                 ticks += 1;
             }
         }
-        assert_eq!(clock.current_tick(), 2);
+        assert_eq!(clock.current_tick(), 960);
         assert_eq!(ticks, 2);
     }
 
@@ -167,7 +175,7 @@ mod temp_clock_base_tests {
         let mut clock = TempoClock::new(120.0, SAMPLE_RATE, TickResolution::Quarter);
         clock.advance_by(11025); // half a quarter note
         let phase = clock.tick_phase();
-        assert!((phase - 0.5).abs() < 0.01);
+        assert!((phase - 0.0).abs() < 0.01);
     }
 
     #[test]
@@ -198,55 +206,68 @@ mod bar_beat_tick_tests {
         sample_rate: f64,
         beats_per_bar: u64,
         beat_unit: u64,
-        ticks_per_beat: u64,
+        resolution: TickResolution,
     ) -> TempoClock {
         TempoClock::with_signature(
             bpm,
             sample_rate,
-            TickResolution::Sixteenth,
+            resolution,
             TimeSignature {
                 beats_per_bar,
                 beat_unit,
             },
-            ticks_per_beat,
         )
     }
 
     #[test]
     fn test_bbt_start_position() {
-        let clock = create_clock(120.0, 44100.0, 4, 4, 4);
+        let clock = create_clock(120.0, 44100.0, 4, 4, TickResolution::Sixteenth);
         let (bar, beat, tick) = clock.bar_beat_tick();
+        // tick/beat -> 120
+        // beat/bar -> 4
+        // tick/bar -> 4 * 120 -> 480
+        // after 5 tick_counter update, bar -> counter / tick/bar -> 0.0 bar
+        // after 5 tick_counter update, beat -> 1 bar = 4 beat -> 4 * bar -> 0 beat
+        // after 5 tick_counter update, tick -> counter % tick/beat -> 0 % 120 -> 0
+        //  but since we use 1-based values, bar -> 1, beat -> 1, tick -> 1
         assert_eq!((bar, beat, tick), (1, 1, 1));
     }
 
     #[test]
     fn test_bbt_after_ticks() {
-        let mut clock = create_clock(120.0, 44100.0, 4, 4, 4);
+        let mut clock = create_clock(120.0, 44100.0, 4, 4, TickResolution::Sixteenth);
         clock.mock_set_tick_counter(5);
-        // tick/beat -> 4
+        // tick/beat -> 120
         // beat/bar -> 4
-        // tick/bar -> 4 * 4 -> 16
-        // after 5 tick_counter update, bar -> counter / tick/bar -> 0.3 bar
-        // after 5 tick_counter update, beat -> 1 bar = 4 beat -> 4 * bar -> 1.2 beat
-        // after 5 tick_counter update, tick -> counter % tick/beat -> 5 % 4 -> 1
-        //  but since we use 1-based values, bar -> 1.3(1), beat -> 2.2(2), tick -> 2
+        // tick/bar -> 4 * 120 -> 480
+        // after 5 tick_counter update, bar -> counter / tick/bar -> 0.0 bar
+        // after 5 tick_counter update, beat -> 1 bar = 4 beat -> 4 * bar -> 0 beat
+        // after 5 tick_counter update, tick -> counter % tick/beat -> 5 % 120 -> 5
+        //  but since we use 1-based values, bar -> 1, beat -> 1, tick -> 6
         let (bar, beat, tick) = clock.bar_beat_tick();
-        assert_eq!((bar, beat, tick), (1, 2, 2));
+        assert_eq!((bar, beat, tick), (1, 1, 6));
     }
 
     #[test]
     fn test_bbt_in_3_4_time() {
-        let mut clock = create_clock(120.0, 44100.0, 3, 4, 4);
+        let mut clock = create_clock(120.0, 44100.0, 3, 4, TickResolution::Sixteenth);
         clock.mock_set_tick_counter(7);
+        // tick/beat -> 120
+        // beat/bar -> 3
+        // tick/bar -> 3 * 120 -> 360
+        // after 5 tick_counter update, bar -> counter / tick/bar -> 0.0 bar
+        // after 5 tick_counter update, beat -> 1 bar = 3 beat -> 3 * bar -> 0 beat
+        // after 5 tick_counter update, tick -> counter % tick/beat -> 7 % 120 -> 7
+        //  but since we use 1-based values, bar -> 1, beat -> 1, tick -> 8
         let (bar, beat, tick) = clock.bar_beat_tick();
-        assert_eq!((bar, beat, tick), (1, 2, 4));
+        assert_eq!((bar, beat, tick), (1, 1, 8));
     }
 
     #[test]
     fn test_bbt_in_6_8_time() {
-        let mut clock = create_clock(120.0, 44100.0, 6, 8, 8);
+        let mut clock = create_clock(120.0, 44100.0, 6, 8, TickResolution::Eighth);
         clock.mock_set_tick_counter(15);
         let (bar, beat, tick) = clock.bar_beat_tick();
-        assert_eq!((bar, beat, tick), (1, 2, 8));
+        assert_eq!((bar, beat, tick), (1, 1, 16));
     }
 }
