@@ -21,6 +21,7 @@ use crate::track::{Track, TrackId};
 ///
 /// let track = WavTrack::from_file("assets/wav/piano.wav").unwrap();
 /// ```
+#[derive(Debug)]
 pub struct WavTrack {
     /// track id
     id: TrackId,

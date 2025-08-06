@@ -27,6 +27,7 @@ pub enum TrackType {
 pub trait Track
 where
     Self: Sync + Send,
+    Self: std::fmt::Debug,
 {
     fn id(&self) -> TrackId;
     fn name(&self) -> &str;

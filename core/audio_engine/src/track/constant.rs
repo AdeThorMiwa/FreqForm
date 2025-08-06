@@ -2,6 +2,7 @@ use uuid::Uuid;
 
 use crate::track::{Track, TrackId};
 
+#[derive(Debug)]
 pub struct ConstantTrack {
     sample: (f32, f32),
 }

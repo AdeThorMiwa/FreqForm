@@ -4,7 +4,7 @@ use uuid::Uuid;
 
 use crate::track::{Track, TrackId};
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct SineWaveTrack {
     id: TrackId,
     freq: f32,

@@ -7,6 +7,7 @@ pub struct TimeSignature {
 }
 
 // @todo move to core::transport
+#[derive(Debug)]
 pub struct TempoClock {
     samples_per_tick: f64,
     sample_position: f64,

@@ -3,11 +3,13 @@ use transport::resolution::TickResolution;
 
 use crate::track::{Track, TrackId};
 
+#[derive(Debug)]
 pub enum ParameterChange {
     SetGain(f32),
     SetPan(f32),
 }
 
+#[derive(Debug)]
 pub struct LoopOptions {
     pub bar: u64,
     pub beat: u64,
@@ -15,6 +17,7 @@ pub struct LoopOptions {
 }
 
 // @todo change this to automation events
+#[derive(Debug)]
 pub enum SchedulerCommand {
     ScheduleTrack {
         track: Box<dyn Track>,

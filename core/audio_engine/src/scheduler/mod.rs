@@ -15,6 +15,7 @@ use crate::{
 pub mod command;
 pub mod track;
 
+#[derive(Debug)]
 pub struct LoopPoints {
     pub start_bar: u64,
     pub start_beat: u64,
@@ -24,6 +25,7 @@ pub struct LoopPoints {
     pub end_tick: u64,
 }
 
+#[derive(Debug)]
 pub struct Scheduler {
     /// a queue of future tracks
     scheduled: BinaryHeap<ScheduledTrack>,

@@ -5,6 +5,7 @@ use crate::{
     track::{Track, TrackId},
 };
 
+#[derive(Debug)]
 pub struct GainPanTrack {
     /// track id
     id: TrackId,

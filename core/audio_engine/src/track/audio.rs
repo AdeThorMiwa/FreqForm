@@ -1,5 +1,6 @@
 use crate::track::{Track, TrackId, TrackType, base::BaseTrack};
 
+#[derive(Debug)]
 pub struct AudioTrack {
     base: BaseTrack,
 }

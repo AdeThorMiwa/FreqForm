@@ -2,6 +2,7 @@ use uuid::Uuid;
 
 use crate::track::{TrackId, TrackType};
 
+#[derive(Debug)]
 pub struct BaseTrack {
     id: TrackId,
     name: String,
