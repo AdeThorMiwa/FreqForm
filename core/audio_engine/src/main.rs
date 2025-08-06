@@ -4,7 +4,7 @@ use audio_engine::{
         Scheduler,
         command::{ParameterChange, SchedulerCommand},
     },
-    track::{gainpan::GainPanTrack, wav::WavTrack},
+    track::{Track, gainpan::GainPanTrack, wav::WavTrack},
 };
 use transport::{clock::TempoClock, resolution::TickResolution};
 
@@ -21,9 +21,9 @@ fn main() {
 
     println!("Stream started");
 
-    let piano = {
+    let (track_id, track) = {
         let wav = WavTrack::from_file("./assets/wav/piano.wav").expect("Failed to load WAV");
-        GainPanTrack::new("x-track", Box::new(wav), 0.1, 1.0)
+        (wav.id(), GainPanTrack::new(Box::new(wav), 0.1, 1.0))
     };
 
     let time_to_frame = |time_in_sec: f64| {
@@ -34,7 +34,7 @@ fn main() {
     prod.push(SchedulerCommand::Play).unwrap();
 
     prod.push(SchedulerCommand::ScheduleTrack {
-        track: Box::new(piano),
+        track: Box::new(track),
         start_frame: time_to_frame(1.0),
     })
     .unwrap();
@@ -44,7 +44,7 @@ fn main() {
     println!("Lowering gain to 0.3");
 
     prod.push(SchedulerCommand::ParamChange {
-        target_id: "x-track".into(),
+        target_id: track_id.clone(),
         change: ParameterChange::SetGain(1.0),
     })
     .unwrap();
@@ -54,7 +54,7 @@ fn main() {
 
     println!("Panning fully left");
     prod.push(SchedulerCommand::ParamChange {
-        target_id: "x-track".into(),
+        target_id: track_id,
         change: ParameterChange::SetPan(-1.0),
     })
     .unwrap();

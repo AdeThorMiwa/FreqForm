@@ -1,4 +1,6 @@
-use crate::track::Track;
+use uuid::Uuid;
+
+use crate::track::{Track, TrackId};
 
 pub struct ConstantTrack {
     sample: (f32, f32),
@@ -13,8 +15,16 @@ impl ConstantTrack {
 }
 
 impl Track for ConstantTrack {
-    fn id(&self) -> String {
-        "constant-track".to_string()
+    fn id(&self) -> TrackId {
+        Uuid::new_v4().into()
+    }
+
+    fn name(&self) -> &str {
+        "Constant"
+    }
+
+    fn track_type(&self) -> super::TrackType {
+        super::TrackType::Audio
     }
 
     fn fill_next_samples(&mut self, next_sample: &mut [(f32, f32)]) {

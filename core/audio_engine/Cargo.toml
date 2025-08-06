@@ -8,6 +8,7 @@ cpal = "0.16.0"
 hound = "3.5.1"
 rtrb = "0.3.2"
 transport = { path = "../transport" }
+uuid = { version = "1.17.0", features = ["v4"] }
 
 [lints]
 workspace = true

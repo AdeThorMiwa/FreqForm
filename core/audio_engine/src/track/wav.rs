@@ -1,8 +1,9 @@
 use std::{io::Read, path::Path};
 
 use hound::WavReader;
+use uuid::Uuid;
 
-use crate::track::Track;
+use crate::track::{Track, TrackId};
 
 /// `WavTrack` represents an in-memory, stereo-normalized PCM buffer loaded from a `.wav` file.
 ///
@@ -21,14 +22,21 @@ use crate::track::Track;
 /// let track = WavTrack::from_file("assets/wav/piano.wav").unwrap();
 /// ```
 pub struct WavTrack {
+    /// track id
+    id: TrackId,
+    /// file name
+    name: String,
     /// Interleaved stereo frames
-    pub(crate) samples: Vec<(f32, f32)>,
+    samples: Vec<(f32, f32)>,
     /// Current read position (frame index)
-    pub(crate) position: usize,
+    position: usize,
 }
 
 impl WavTrack {
-    fn from_reader<R: Read + Send + 'static>(reader: WavReader<R>) -> Result<Self, String> {
+    fn from_reader<R: Read + Send + 'static>(
+        reader: WavReader<R>,
+        name: &str,
+    ) -> Result<Self, String> {
         let spec = reader.spec();
         let channels = spec.channels;
         if channels == 0 || channels > 2 {
@@ -37,21 +45,33 @@ impl WavTrack {
 
         let pcm_samples = Self::decode_pcm_samples(reader)?;
         Ok(Self {
+            id: Uuid::new_v4().into(),
+            name: name.to_owned(),
             samples: pcm_samples,
             position: 0,
         })
     }
 
-    pub fn from_file<P: AsRef<Path>>(path: P) -> Result<Self, String> {
+    pub fn from_file<P: AsRef<Path> + Clone>(path: P) -> Result<Self, String> {
+        let name = {
+            let p = path.clone();
+            p.as_ref()
+                .file_name()
+                .clone()
+                .unwrap()
+                .to_str()
+                .unwrap()
+                .to_owned()
+        };
         let reader =
             WavReader::open(path).map_err(|e| format!("Failed to open WAV file: {}", e))?;
-        Self::from_reader(reader)
+        Self::from_reader(reader, &name)
     }
 
     pub fn from_stream<R: Read + Send + 'static>(stream: R) -> Result<Self, String> {
         let reader =
             WavReader::new(stream).map_err(|e| format!("Failed to parse WAV stream: {}", e))?;
-        Self::from_reader(reader)
+        Self::from_reader(reader, "stream")
     }
 
     fn decode_pcm_samples<R: Read + Send + 'static>(
@@ -88,11 +108,29 @@ impl WavTrack {
             _ => unreachable!("Unsupported channel count"),
         }
     }
+
+    #[cfg(test)]
+    pub fn from_raw_samples(samples: Vec<(f32, f32)>) -> Self {
+        Self {
+            id: Uuid::new_v4().into(),
+            name: "raw-samples.wav".to_owned(),
+            position: 0,
+            samples,
+        }
+    }
 }
 
 impl Track for WavTrack {
-    fn id(&self) -> String {
-        "wav-track".to_owned()
+    fn id(&self) -> TrackId {
+        self.id.clone()
+    }
+
+    fn name(&self) -> &str {
+        &self.name
+    }
+
+    fn track_type(&self) -> super::TrackType {
+        super::TrackType::Audio
     }
 
     fn fill_next_samples(&mut self, next_samples: &mut [(f32, f32)]) {

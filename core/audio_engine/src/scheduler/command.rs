@@ -1,7 +1,7 @@
 use rtrb::Consumer;
 use transport::resolution::TickResolution;
 
-use crate::track::Track;
+use crate::track::{Track, TrackId};
 
 pub enum ParameterChange {
     SetGain(f32),
@@ -21,14 +21,14 @@ pub enum SchedulerCommand {
         start_frame: u64,
     },
     ParamChange {
-        target_id: String,
+        target_id: TrackId,
         change: ParameterChange,
     },
     StopTrack {
-        target_id: String,
+        target_id: TrackId,
     },
     RestartTrack {
-        target_id: String,
+        target_id: TrackId,
     },
     /// Tempo change command
     SetTempo {

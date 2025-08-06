@@ -1,9 +1,12 @@
 use std::f32::consts::PI;
 
-use crate::track::Track;
+use uuid::Uuid;
 
-#[derive(Clone, Copy)]
+use crate::track::{Track, TrackId};
+
+#[derive(Clone)]
 pub struct SineWaveTrack {
+    id: TrackId,
     freq: f32,
     sample_rate: f32,
     phase: f32,
@@ -12,6 +15,7 @@ pub struct SineWaveTrack {
 impl SineWaveTrack {
     pub fn new(freq: f32, sample_rate: f32) -> Self {
         Self {
+            id: Uuid::new_v4().into(),
             freq,
             sample_rate,
             phase: 0.0,
@@ -20,8 +24,16 @@ impl SineWaveTrack {
 }
 
 impl Track for SineWaveTrack {
-    fn id(&self) -> String {
-        "sine-wave-track".to_owned()
+    fn id(&self) -> TrackId {
+        self.id.clone()
+    }
+
+    fn name(&self) -> &str {
+        "SineWave"
+    }
+
+    fn track_type(&self) -> super::TrackType {
+        super::TrackType::Audio
     }
 
     fn fill_next_samples(&mut self, next_samples: &mut [(f32, f32)]) {
