@@ -1,7 +1,7 @@
 use std::collections::BinaryHeap;
 
 use cpal::Sample;
-use transport::{clock::TempoClock, transport::TransportState};
+use transport::{clock::TempoClock, timeline::TimelinePosition, transport::TransportState};
 
 use crate::{
     device_manager::{AudioSource, AudioSourceBufferKind},
@@ -236,6 +236,19 @@ impl Scheduler {
             *sample = raw_sample.to_sample::<T>();
         }
     }
+
+    pub fn get_timeline_position(&self) -> TimelinePosition {
+        let (bar, beat, tick_within_beat) = self.tempo_clock.bar_beat_tick();
+        let tick = self.current_tick();
+
+        TimelinePosition {
+            bar,
+            beat,
+            tick,
+            current_frame: self.current_frame,
+            tick_within_beat,
+        }
+    }
 }
 
 impl AudioSource for Scheduler {
@@ -256,6 +269,7 @@ impl AudioSource for Scheduler {
     }
 }
 
+//@todo move this guys to somewhere else, anywhere.. just get them tf out this file
 #[cfg(test)]
 mod test_util {
     use crate::scheduler::{Scheduler, command::SchedulerCommand};
