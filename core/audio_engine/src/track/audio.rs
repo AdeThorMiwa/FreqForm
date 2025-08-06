@@ -1,42 +1,142 @@
-use crate::track::{Track, TrackId, TrackType, base::BaseTrack};
+use uuid::Uuid;
+
+use crate::{
+    clip::Clip,
+    track::{Track, TrackId, TrackType, timeline::TimelineTrack},
+};
 
 #[derive(Debug)]
 pub struct AudioTrack {
-    base: BaseTrack,
+    id: TrackId,
+    name: String,
+    timeline: TimelineTrack,
+    current_frame: u64,
 }
 
 impl AudioTrack {
     pub fn new(name: impl Into<String>) -> Self {
+        let id: TrackId = Uuid::new_v4().into();
+        let name = name.into();
+        let timeline = TimelineTrack::new(id.clone(), &name);
+
         Self {
-            base: BaseTrack::new(name, TrackType::Audio),
+            id: id.into(),
+            name,
+            timeline,
+            current_frame: 0,
         }
+    }
+
+    pub fn add_clip(&mut self, clip: Clip) {
+        self.timeline.add_clip(clip);
+    }
+
+    pub fn reset_position(&mut self) {
+        self.current_frame = 0;
     }
 }
 
 impl Track for AudioTrack {
     fn id(&self) -> TrackId {
-        self.base.id()
+        self.id.clone()
     }
 
     fn name(&self) -> &str {
-        self.base.name()
+        &self.name
     }
 
     fn track_type(&self) -> TrackType {
-        self.base.track_type()
+        TrackType::Audio
     }
 
     fn fill_next_samples(&mut self, next_samples: &mut [(f32, f32)]) {
-        // For now, zero-fill. Will implement clip-based playback in next steps.
-        for sample in next_samples.iter_mut() {
-            *sample = (0.0, 0.0);
-        }
+        self.timeline
+            .render_audio(self.current_frame, next_samples.len(), next_samples);
+
+        self.current_frame += next_samples.len() as u64;
+    }
+
+    fn reset(&mut self) {
+        self.reset_position();
     }
 }
 
 #[cfg(test)]
 mod audio_track_tests {
     use super::*;
+    use crate::{clip::ClipTiming, track::wav::WavTrack};
+    use std::sync::Arc;
+
+    fn load_test_wav() -> Arc<WavTrack> {
+        let wav =
+            WavTrack::from_file("../../assets/wav/piano.wav").expect("Failed to load test wav");
+        Arc::new(wav)
+    }
+
+    #[test]
+    fn audio_track_renders_clip_output() {
+        let wav = load_test_wav();
+
+        // Clip: starts at frame 0, lasts for 512 samples
+        let clip = Clip::new_audio(
+            ClipTiming {
+                start_frame: 0,
+                duration_frames: 512,
+            },
+            wav.clone(),
+            0,
+            false,
+            1.0,
+            0.0,
+        );
+
+        let mut track = AudioTrack::new("Test Audio Track");
+        track.add_clip(clip);
+
+        let mut output = vec![(0.0f32, 0.0f32); 512];
+        track.fill_next_samples(&mut output[..]);
+
+        // At least some non-zero audio should be present
+        let nonzero_samples = output
+            .iter()
+            .filter(|(l, r)| *l != 0.0 || *r != 0.0)
+            .count();
+        assert!(
+            nonzero_samples > 0,
+            "Expected non-zero samples from AudioTrack output"
+        );
+    }
+
+    #[test]
+    fn audio_track_silence_when_outside_clip_range() {
+        let wav = load_test_wav();
+
+        // Clip is positioned to start far in the future
+        let clip = Clip::new_audio(
+            ClipTiming {
+                start_frame: 10_000,
+                duration_frames: 256,
+            },
+            wav.clone(),
+            0,
+            false,
+            1.0,
+            0.0,
+        );
+
+        let mut track = AudioTrack::new("Future Clip Track");
+        track.add_clip(clip);
+
+        // Render at time 0 — clip should not be active
+        let mut output = vec![(0.0f32, 0.0f32); 512];
+        track.fill_next_samples(&mut output[..]);
+
+        // All output should be silence
+        for (l, r) in output {
+            assert_eq!(l, 0.0);
+            assert_eq!(r, 0.0);
+        }
+    }
 
     #[test]
     fn audio_track_creation_has_valid_id_and_name() {
@@ -45,20 +145,6 @@ mod audio_track_tests {
 
         assert_eq!(track.name(), name);
         assert_eq!(track.track_type(), TrackType::Audio);
-    }
-
-    #[test]
-    fn audio_track_fills_zero_samples() {
-        let mut track = AudioTrack::new("Silent Track");
-        let frame_size = 64;
-        let samples = track.next_samples(frame_size);
-
-        assert_eq!(samples.len(), frame_size);
-
-        for (l, r) in samples {
-            assert_eq!(l, 0.0);
-            assert_eq!(r, 0.0);
-        }
     }
 
     #[test]

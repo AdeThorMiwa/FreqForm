@@ -3,7 +3,10 @@ use std::{io::Read, path::Path};
 use hound::WavReader;
 use uuid::Uuid;
 
-use crate::track::{Track, TrackId};
+use crate::{
+    clip::AudioClipSource,
+    track::{Track, TrackId},
+};
 
 /// `WavTrack` represents an in-memory, stereo-normalized PCM buffer loaded from a `.wav` file.
 ///
@@ -143,6 +146,25 @@ impl Track for WavTrack {
 
     fn reset(&mut self) {
         self.position = 0;
+    }
+}
+
+impl AudioClipSource for WavTrack {
+    fn read_samples(&self, start_frame: u64, frame_count: usize) -> Vec<(f32, f32)> {
+        let start = start_frame as usize;
+        let end = start + frame_count;
+
+        if start >= self.samples.len() {
+            return vec![(0.0, 0.0); frame_count];
+        }
+
+        let clamped_end = end.min(self.samples.len());
+        let slice = &self.samples[start..clamped_end];
+
+        // Fill remaining with silence if needed
+        let mut result = slice.to_vec();
+        result.resize(frame_count, (0.0, 0.0));
+        result
     }
 }
 

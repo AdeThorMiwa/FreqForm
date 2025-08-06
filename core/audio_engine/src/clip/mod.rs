@@ -1,8 +1,15 @@
 pub mod clip_id;
-use std::sync::Arc;
+use crate::clip::clip_id::ClipId;
+use std::{fmt, sync::Arc};
 use uuid::Uuid;
 
-use crate::{clip::clip_id::ClipId, device_manager::AudioSource};
+/// Represents a clip-aware audio source that supports reading at arbitrary frame offsets.
+/// Implemented by WavTrack and future streamers.
+pub trait AudioClipSource: Send + Sync + fmt::Debug {
+    /// Read `frame_count` stereo frames starting from `start_frame`.
+    /// Returns silence if out of bounds.
+    fn read_samples(&self, start_frame: u64, frame_count: usize) -> Vec<(f32, f32)>;
+}
 
 /// Position and length of a clip in the timeline (in samples for now)
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -15,7 +22,7 @@ pub struct ClipTiming {
 #[derive(Debug)]
 pub struct AudioClip {
     /// Reference to audio source (e.g. WavTrack or disk streamer)
-    pub source: Arc<dyn AudioSource + Send + Sync>,
+    pub source: Arc<dyn AudioClipSource + Send + Sync>,
 
     /// Start offset inside the source file (for trimming)
     pub start_offset: u64,
@@ -32,7 +39,7 @@ pub struct AudioClip {
 
 /// Supported clip content types
 #[derive(Debug)]
-pub enum ClipContent {
+pub enum ClipKind {
     Audio(AudioClip),
 }
 
@@ -41,13 +48,13 @@ pub enum ClipContent {
 pub struct Clip {
     pub id: ClipId,
     pub timing: ClipTiming,
-    pub content: ClipContent,
+    pub content: ClipKind,
 }
 
 impl Clip {
     pub fn new_audio(
         timing: ClipTiming,
-        source: Arc<dyn AudioSource + Send + Sync>,
+        source: Arc<dyn AudioClipSource + Send + Sync>,
         start_offset: u64,
         looping: bool,
         gain: f32,
@@ -56,7 +63,7 @@ impl Clip {
         Self {
             id: Uuid::new_v4().into(),
             timing,
-            content: ClipContent::Audio(AudioClip {
+            content: ClipKind::Audio(AudioClip {
                 source,
                 start_offset,
                 looping,

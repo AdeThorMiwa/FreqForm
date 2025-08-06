@@ -6,6 +6,7 @@ pub mod constant;
 pub mod gainpan;
 pub mod midi;
 pub mod sinewave;
+pub mod timeline;
 pub mod wav;
 
 #[derive(Clone, PartialEq, Debug)]
