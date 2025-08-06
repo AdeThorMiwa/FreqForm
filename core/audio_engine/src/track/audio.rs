@@ -11,6 +11,7 @@ pub struct AudioTrack {
     name: String,
     timeline: TimelineTrack,
     current_frame: u64,
+    playing: bool,
 }
 
 impl AudioTrack {
@@ -24,6 +25,7 @@ impl AudioTrack {
             name,
             timeline,
             current_frame: 0,
+            playing: true,
         }
     }
 
@@ -33,6 +35,14 @@ impl AudioTrack {
 
     pub fn reset_position(&mut self) {
         self.current_frame = 0;
+    }
+
+    pub fn start(&mut self) {
+        self.playing = true;
+    }
+
+    pub fn stop(&mut self) {
+        self.playing = false;
     }
 }
 
@@ -50,6 +60,13 @@ impl Track for AudioTrack {
     }
 
     fn fill_next_samples(&mut self, next_samples: &mut [(f32, f32)]) {
+        if !self.playing {
+            for sample in next_samples.iter_mut() {
+                *sample = (0.0, 0.0);
+            }
+            return;
+        }
+
         self.timeline
             .render_audio(self.current_frame, next_samples.len(), next_samples);
 
@@ -58,6 +75,7 @@ impl Track for AudioTrack {
 
     fn reset(&mut self) {
         self.reset_position();
+        self.playing = true;
     }
 }
 
