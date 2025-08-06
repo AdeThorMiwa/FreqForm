@@ -1,7 +1,10 @@
 use rtrb::Consumer;
 use transport::resolution::TickResolution;
 
-use crate::track::{Track, TrackId};
+use crate::{
+    clip::Clip,
+    track::{Track, TrackId},
+};
 
 #[derive(Debug)]
 pub enum ParameterChange {
@@ -22,6 +25,10 @@ pub enum SchedulerCommand {
     ScheduleTrack {
         track: Box<dyn Track>,
         start_frame: u64,
+    },
+    ScheduleClip {
+        track_id: TrackId,
+        clip: Clip,
     },
     ParamChange {
         target_id: TrackId,

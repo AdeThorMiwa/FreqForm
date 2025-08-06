@@ -9,7 +9,7 @@ use crate::{
         command::{SchedulerCommand, SchedulerCommandConsumer},
         track::ScheduledTrack,
     },
-    track::{Track, TrackId},
+    track::{Track, TrackId, audio::AudioTrack},
 };
 
 pub mod command;
@@ -68,6 +68,23 @@ impl Scheduler {
         match cmd {
             SchedulerCommand::ScheduleTrack { track, start_frame } => {
                 self.schedule(track, start_frame)
+            }
+            SchedulerCommand::ScheduleClip { track_id, clip } => {
+                if let Some(track) = self.active_tracks.iter_mut().find(|t| t.id() == track_id) {
+                    // Downcast trait object to AudioTrack
+                    // Uses Any downcasting — temporary until plugin routing
+                    if let Some(audio_track) =
+                        (track as &mut dyn std::any::Any).downcast_mut::<AudioTrack>()
+                    {
+                        audio_track.add_clip(clip);
+                        return;
+                    }
+
+                    log::warn!("Cannot schedule clip on non-audio track: {:?}", track_id);
+                    return;
+                }
+
+                log::warn!("Track not found for clip scheduling: {:?}", track_id);
             }
             SchedulerCommand::ParamChange { target_id, change } => {
                 for track in self.active_tracks.iter_mut() {
