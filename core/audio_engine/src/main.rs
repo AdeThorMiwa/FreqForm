@@ -31,6 +31,8 @@ fn main() {
         (time_in_sec * sample_rate) as u64
     };
 
+    prod.push(SchedulerCommand::Play).unwrap();
+
     prod.push(SchedulerCommand::ScheduleTrack {
         track: Box::new(piano),
         start_frame: time_to_frame(1.0),

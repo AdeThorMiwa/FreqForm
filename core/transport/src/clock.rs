@@ -8,7 +8,6 @@ pub struct TimeSignature {
 
 // @todo move to core::transport
 pub struct TempoClock {
-    bpm: f64,
     samples_per_tick: f64,
     sample_position: f64,
     tick_counter: u64,
@@ -51,11 +50,6 @@ impl TempoClock {
             tick_emitted = true;
         }
 
-        println!(
-            "tick counter: {} spt: {} bpm: {}",
-            self.tick_counter, self.samples_per_tick, self.bpm
-        );
-
         tick_emitted
     }
 
@@ -94,7 +88,6 @@ impl TempoClock {
         let samples_per_tick =
             TempoClock::compute_samples_per_tick(bpm, sample_rate, ticks_per_beat);
         Self {
-            bpm,
             samples_per_tick,
             sample_position: 0.0,
             tick_counter: 0,
