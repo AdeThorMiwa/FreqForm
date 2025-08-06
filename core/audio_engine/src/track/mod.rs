@@ -1,4 +1,6 @@
-use crate::scheduler::command::ParameterChange;
+use std::any;
+
+use crate::{scheduler::command::ParameterChange, track::audio::AudioTrack};
 
 pub mod audio;
 pub mod base;
@@ -29,6 +31,7 @@ pub trait Track
 where
     Self: Sync + Send,
     Self: std::fmt::Debug,
+    Self: any::Any,
 {
     fn id(&self) -> TrackId;
     fn name(&self) -> &str;

@@ -44,6 +44,10 @@ impl AudioTrack {
     pub fn stop(&mut self) {
         self.playing = false;
     }
+
+    pub fn downcast_to_audio_track(track: &mut Box<dyn Track>) -> Option<&mut AudioTrack> {
+        (track as &mut dyn std::any::Any).downcast_mut::<AudioTrack>()
+    }
 }
 
 impl Track for AudioTrack {

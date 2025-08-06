@@ -73,9 +73,7 @@ impl Scheduler {
                 if let Some(track) = self.active_tracks.iter_mut().find(|t| t.id() == track_id) {
                     // Downcast trait object to AudioTrack
                     // Uses Any downcasting — temporary until plugin routing
-                    if let Some(audio_track) =
-                        (track as &mut dyn std::any::Any).downcast_mut::<AudioTrack>()
-                    {
+                    if let Some(audio_track) = AudioTrack::downcast_to_audio_track(track) {
                         audio_track.add_clip(clip);
                         return;
                     }
@@ -90,6 +88,19 @@ impl Scheduler {
                 for track in self.active_tracks.iter_mut() {
                     track.apply_param_change(target_id.clone(), &change);
                 }
+            }
+            SchedulerCommand::StartTrack { target_id } => {
+                if let Some(track) = self.active_tracks.iter_mut().find(|t| t.id() == target_id) {
+                    if let Some(audio_track) = AudioTrack::downcast_to_audio_track(track) {
+                        audio_track.start();
+                        return;
+                    }
+
+                    log::warn!("StartTrack only supported for AudioTrack currently");
+                    return;
+                }
+
+                log::warn!("Track not found: {:?}", target_id);
             }
             SchedulerCommand::StopTrack { target_id } => {
                 self.stop_track(target_id);

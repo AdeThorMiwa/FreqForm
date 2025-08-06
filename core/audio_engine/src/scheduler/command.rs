@@ -34,6 +34,9 @@ pub enum SchedulerCommand {
         target_id: TrackId,
         change: ParameterChange,
     },
+    StartTrack {
+        target_id: TrackId,
+    },
     StopTrack {
         target_id: TrackId,
     },
