@@ -91,7 +91,7 @@ mod audio_track_tests {
 
     fn load_test_wav() -> Arc<WavTrack> {
         let wav =
-            WavTrack::from_file("../../assets/wav/piano.wav").expect("Failed to load test wav");
+            WavTrack::from_file("../../assets/wav/drum.wav").expect("Failed to load test wav");
         Arc::new(wav)
     }
 
@@ -179,5 +179,46 @@ mod audio_track_tests {
         let frame_size = 32;
         let samples = track.next_samples(frame_size);
         assert_eq!(samples.len(), frame_size);
+    }
+
+    #[test]
+    fn looped_clip_repeats_samples_correctly() {
+        let wav = load_test_wav();
+        let loop_duration = 128;
+
+        let clip = Clip::new_audio(
+            ClipTiming {
+                start_frame: 0,
+                duration_frames: loop_duration,
+            },
+            wav.clone(),
+            0,
+            true,
+            1.0,
+            0.0,
+        );
+
+        let mut track = AudioTrack::new("Looped Clip Track");
+        track.add_clip(clip);
+
+        let mut output = vec![(0.0f32, 0.0f32); (loop_duration * 4) as usize];
+        track.fill_next_samples(&mut output[..]);
+
+        let loops = 4;
+        let looped_sections: Vec<&[(f32, f32)]> = (0..loops)
+            .map(|i| {
+                let start = i * loop_duration;
+                let end = start + loop_duration;
+                &output[start as usize..end as usize]
+            })
+            .collect();
+
+        for i in 1..loops {
+            assert_eq!(
+                looped_sections[0], looped_sections[i as usize],
+                "Loop section {} does not match section 0",
+                i
+            );
+        }
     }
 }

@@ -45,22 +45,48 @@ impl TimelineTrack {
             match &mut clip.content {
                 ClipKind::Audio(audio_clip) => {
                     let source = Arc::clone(&audio_clip.source);
-                    let start_offset = audio_clip.start_offset;
+                    let offset = audio_clip.start_offset;
                     let gain = audio_clip.gain;
                     let pan = audio_clip.pan;
+                    let should_loop = audio_clip.looping;
 
-                    // Calculate read position from source (considering start_frame and clip offset)
-                    let rel_frame = start_frame.saturating_sub(clip.timing.start_frame);
-                    let read_start = start_offset + rel_frame;
+                    let clip_start = clip.timing.start_frame;
+                    let clip_end = clip.ends_at();
+                    let clip_length = clip.timing.duration_frames;
 
-                    let samples = source.read_samples(read_start, frame_count);
+                    for i in 0..frame_count {
+                        let global_frame = start_frame + i as u64;
 
-                    for (i, (l, r)) in samples.iter().enumerate().take(frame_count) {
-                        let (l, r) = apply_gain_pan(*l, *r, gain, pan);
+                        if global_frame < clip_start {
+                            continue;
+                        }
+
+                        if !should_loop && global_frame >= clip_end {
+                            continue;
+                        }
+
+                        let clip_relative = global_frame - clip_start;
+
+                        // Loop offset within clip
+                        let local_frame = if should_loop {
+                            clip_relative % clip_length
+                        } else {
+                            clip_relative
+                        };
+
+                        let source_frame = offset + local_frame;
+
+                        let sample = source
+                            .read_samples(source_frame, 1)
+                            .get(0)
+                            .copied()
+                            .unwrap_or((0.0, 0.0));
+                        let (l, r) = apply_gain_pan(sample.0, sample.1, gain, pan);
+
                         output_buffer[i].0 += l;
                         output_buffer[i].1 += r;
                     }
-                } //_ => {}
+                }
             }
         }
     }

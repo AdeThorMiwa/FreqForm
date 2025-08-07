@@ -1,6 +1,5 @@
+use crate::scheduler::command::ParameterChange;
 use std::any;
-
-use crate::{scheduler::command::ParameterChange, track::audio::AudioTrack};
 
 pub mod audio;
 pub mod base;
