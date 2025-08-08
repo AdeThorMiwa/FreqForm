@@ -9,7 +9,7 @@ use crate::{
 pub struct AudioTrack {
     id: TrackId,
     name: String,
-    timeline: TimelineTrack,
+    pub timeline: TimelineTrack,
     current_frame: u64,
     playing: bool,
 }

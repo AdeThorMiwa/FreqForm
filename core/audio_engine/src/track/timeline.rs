@@ -38,11 +38,7 @@ impl TimelineTrack {
         output_buffer: &mut [(f32, f32)],
     ) {
         for clip in self.clips.iter_mut() {
-            if !clip.is_active_at(start_frame) {
-                continue;
-            }
-
-            match &mut clip.content {
+            match &mut clip.kind {
                 ClipKind::Audio(audio_clip) => {
                     let source = Arc::clone(&audio_clip.source);
                     let offset = audio_clip.start_offset;
@@ -75,6 +71,11 @@ impl TimelineTrack {
                         };
 
                         let source_frame = offset + local_frame;
+                        let relative_time_frame = clip_start + local_frame;
+
+                        if !clip.is_active_at(relative_time_frame) {
+                            continue;
+                        }
 
                         let sample = source
                             .read_samples(source_frame, 1)
