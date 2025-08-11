@@ -4,7 +4,7 @@ use hound::WavReader;
 use uuid::Uuid;
 
 use crate::{
-    clip::AudioClipSource,
+    clip::source::ClipSource,
     track::{Track, TrackId},
 };
 
@@ -149,7 +149,7 @@ impl Track for WavTrack {
     }
 }
 
-impl AudioClipSource for WavTrack {
+impl ClipSource for WavTrack {
     fn read_samples(&self, start_frame: u64, frame_count: usize) -> Vec<(f32, f32)> {
         let start = start_frame as usize;
         let end = start + frame_count;

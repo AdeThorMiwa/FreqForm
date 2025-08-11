@@ -1,5 +1,9 @@
 use crate::{
-    clip::{Clip, ClipKind, clip_id::ClipId},
+    clip::{
+        Clip, ClipKind,
+        clip_id::ClipId,
+        fades::{Fade, FadeCurve},
+    },
     track::TrackId,
 };
 use std::sync::Arc;
@@ -49,6 +53,8 @@ impl TimelineTrack {
                     let clip_start = clip.timing.start_frame;
                     let clip_end = clip.ends_at();
                     let clip_length = clip.timing.duration_frames;
+                    let fi = clip.fade_in;
+                    let fo = clip.fade_out;
 
                     for i in 0..frame_count {
                         let global_frame = start_frame + i as u64;
@@ -77,12 +83,21 @@ impl TimelineTrack {
                             continue;
                         }
 
-                        let sample = source
+                        // Read one sample (assume read_samples is cheap or backed by cache/streamer)
+                        let (mut l, mut r) = source
                             .read_samples(source_frame, 1)
                             .get(0)
                             .copied()
                             .unwrap_or((0.0, 0.0));
-                        let (l, r) = apply_gain_pan(sample.0, sample.1, gain, pan);
+
+                        // Fade gain
+                        let fg = compute_fade_gain(local_frame, clip_length, fi, fo);
+
+                        // Apply fade, then gain/pan
+                        l *= fg;
+                        r *= fg;
+
+                        let (l, r) = apply_gain_pan(l, r, gain, pan);
 
                         output_buffer[i].0 += l;
                         output_buffer[i].1 += r;
@@ -101,4 +116,68 @@ fn apply_gain_pan(l: f32, r: f32, gain: f32, pan: f32) -> (f32, f32) {
     let pan_r = if pan > 0.0 { 1.0 } else { 1.0 + pan };
 
     (l * gain * pan_l, r * gain * pan_r)
+}
+
+#[inline]
+fn fade_gain_equal_power_in(i: u64, n: u64) -> f32 {
+    if n == 0 {
+        return 1.0;
+    }
+    let t = (i as f32) / (n as f32);
+    (std::f32::consts::FRAC_PI_2 * t).sin()
+}
+
+#[inline]
+fn fade_gain_equal_power_out(i_from_end: u64, n: u64) -> f32 {
+    if n == 0 {
+        return 1.0;
+    }
+    let p = 1.0 - (i_from_end as f32) / (n as f32);
+    (std::f32::consts::FRAC_PI_2 * p.clamp(0.0, 1.0)).cos()
+}
+
+#[inline]
+fn fade_gain_linear_in(i: u64, n: u64) -> f32 {
+    if n == 0 {
+        return 1.0;
+    }
+    (i as f32) / (n as f32)
+}
+
+#[inline]
+fn fade_gain_linear_out(i_from_end: u64, n: u64) -> f32 {
+    if n == 0 {
+        return 1.0;
+    }
+    (i_from_end as f32) / (n as f32)
+}
+
+#[inline]
+fn compute_fade_gain(local_frame: u64, clip_len: u64, fade_in: Fade, fade_out: Fade) -> f32 {
+    let mut g = 1.0f32;
+
+    // fade-in (apply if inside fade-in zone)
+    if fade_in.length_frames > 0 && local_frame < fade_in.length_frames {
+        g = match fade_in.curve {
+            FadeCurve::Linear => fade_gain_linear_in(local_frame, fade_in.length_frames),
+            FadeCurve::EqualPower => fade_gain_equal_power_in(local_frame, fade_in.length_frames),
+        };
+    }
+
+    // fade-out (apply if inside fade-out zone)
+    if fade_out.length_frames > 0 {
+        let out_start = clip_len.saturating_sub(fade_out.length_frames);
+        if local_frame >= out_start {
+            let from_end = (clip_len - 1).saturating_sub(local_frame);
+            let go = match fade_out.curve {
+                FadeCurve::Linear => fade_gain_linear_out(from_end, fade_out.length_frames),
+                FadeCurve::EqualPower => {
+                    fade_gain_equal_power_out(from_end, fade_out.length_frames)
+                }
+            };
+            // If both in & out apply (tiny clips), use the *minimum* to avoid >1.0 boosts
+            g = g.min(go);
+        }
+    }
+    g
 }

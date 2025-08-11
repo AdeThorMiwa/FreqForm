@@ -1,15 +1,13 @@
 pub mod clip_id;
-use crate::clip::clip_id::ClipId;
-use std::{fmt, sync::Arc};
+pub mod fades;
+pub mod source;
+use crate::clip::{
+    clip_id::ClipId,
+    fades::{Fade, FadeCurve},
+    source::ClipSource,
+};
+use std::sync::Arc;
 use uuid::Uuid;
-
-/// Represents a clip-aware audio source that supports reading at arbitrary frame offsets.
-/// Implemented by WavTrack and future streamers.
-pub trait AudioClipSource: Send + Sync + fmt::Debug {
-    /// Read `frame_count` stereo frames starting from `start_frame`.
-    /// Returns silence if out of bounds.
-    fn read_samples(&self, start_frame: u64, frame_count: usize) -> Vec<(f32, f32)>;
-}
 
 /// Position and length of a clip in the timeline (in samples for now)
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -22,7 +20,7 @@ pub struct ClipTiming {
 #[derive(Debug)]
 pub struct AudioClip {
     /// Reference to audio source (e.g. WavTrack or disk streamer)
-    pub source: Arc<dyn AudioClipSource + Send + Sync>,
+    pub source: Arc<dyn ClipSource + Send + Sync>,
 
     /// Start offset inside the source file (for trimming)
     pub start_offset: u64,
@@ -49,12 +47,14 @@ pub struct Clip {
     pub id: ClipId,
     pub timing: ClipTiming,
     pub kind: ClipKind,
+    pub fade_in: Fade,
+    pub fade_out: Fade,
 }
 
 impl Clip {
     pub fn new_audio(
         timing: ClipTiming,
-        source: Arc<dyn AudioClipSource + Send + Sync>,
+        source: Arc<dyn ClipSource + Send + Sync>,
         start_offset: u64,
         looping: bool,
         gain: f32,
@@ -70,6 +70,8 @@ impl Clip {
                 gain,
                 pan,
             }),
+            fade_in: Fade::none(),
+            fade_out: Fade::none(),
         }
     }
 
@@ -88,6 +90,7 @@ impl Clip {
 
     pub fn trim(&mut self, new_duration: u64) {
         self.timing.duration_frames = new_duration;
+        self.clamp_fades();
     }
 
     pub fn move_to(&mut self, new_start_frame: u64) {
@@ -102,6 +105,39 @@ impl Clip {
             }
         }
     }
+
+    pub fn set_fade_in(&mut self, length_frames: u64, curve: FadeCurve) {
+        self.fade_in = Fade {
+            length_frames,
+            curve,
+        };
+        self.clamp_fades();
+    }
+
+    pub fn set_fade_out(&mut self, length_frames: u64, curve: FadeCurve) {
+        self.fade_out = Fade {
+            length_frames,
+            curve,
+        };
+        self.clamp_fades();
+    }
+
+    fn clamp_fades(&mut self) {
+        let len = self.timing.duration_frames;
+        if self.fade_in.length_frames + self.fade_out.length_frames > len {
+            // clamp proportionally (simple approach)
+            let total = self.fade_in.length_frames + self.fade_out.length_frames;
+            if total > 0 {
+                let scale = len as f64 / total as f64;
+                self.fade_in.length_frames =
+                    (self.fade_in.length_frames as f64 * scale).floor() as u64;
+                self.fade_out.length_frames = len - self.fade_in.length_frames;
+            } else {
+                self.fade_in.length_frames = 0;
+                self.fade_out.length_frames = 0;
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -109,7 +145,7 @@ mod clip_tests {
     use std::sync::Arc;
 
     use crate::{
-        clip::{Clip, ClipTiming},
+        clip::{Clip, ClipTiming, fades::FadeCurve, source::ConstOneSource},
         track::{Track, audio::AudioTrack, wav::WavTrack},
     };
 
@@ -135,6 +171,39 @@ mod clip_tests {
         );
 
         let mut track = AudioTrack::new("Editing Test Track");
+        track.add_clip(clip);
+        track
+    }
+
+    fn make_track_with_constant_clip(
+        start_frame: u64,
+        duration_frames: u64,
+        fade_in: Option<(u64, FadeCurve)>,
+        fade_out: Option<(u64, FadeCurve)>,
+    ) -> AudioTrack {
+        use std::sync::Arc;
+        let source = Arc::new(ConstOneSource);
+        let mut clip = Clip::new_audio(
+            ClipTiming {
+                start_frame,
+                duration_frames,
+            },
+            source,
+            0,
+            false,
+            1.0,
+            0.0,
+        );
+
+        if let Some((len, curve)) = fade_in {
+            clip.set_fade_in(len, curve);
+        }
+
+        if let Some((len, curve)) = fade_out {
+            clip.set_fade_out(len, curve);
+        }
+
+        let mut track = AudioTrack::new("FadeTest");
         track.add_clip(clip);
         track
     }
@@ -197,5 +266,106 @@ mod clip_tests {
         track.fill_next_samples(&mut output_2);
 
         assert_ne!(output_1, output_2, "Slip should change audio content");
+    }
+
+    #[test]
+    fn linear_fade_in_on_constant_source() {
+        let fade_len = 100u64;
+        let dur = 200u64;
+        let mut track =
+            make_track_with_constant_clip(0, dur, Some((fade_len, FadeCurve::Linear)), None);
+
+        let mut out = vec![(0.0f32, 0.0f32); dur as usize];
+        track.fill_next_samples(&mut out);
+
+        // Start near zero, end at ~1.0
+        assert!(
+            out[0].0 <= 0.01 && out[0].1 <= 0.01,
+            "first sample should be ~0"
+        );
+        assert!(
+            (out[fade_len as usize - 1].0 - 0.99).abs() < 0.05,
+            "end of fade-in ~1.0"
+        );
+        assert!(
+            (out.last().unwrap().0 - 1.0).abs() < 0.01,
+            "post fade-in ~1.0"
+        );
+    }
+
+    #[test]
+    fn equal_power_fade_out_on_constant_source() {
+        let fade_len = 100u64;
+        let dur = 200u64;
+        let mut track =
+            make_track_with_constant_clip(0, dur, None, Some((fade_len, FadeCurve::EqualPower)));
+
+        let mut out = vec![(0.0f32, 0.0f32); dur as usize];
+        track.fill_next_samples(&mut out);
+
+        // End near zero
+        assert!(out.last().unwrap().0 <= 0.01, "last sample ~0.0");
+
+        // Midpoint of fade-out ~ cos(pi/4) ≈ 0.707
+        let fade_start = (dur - fade_len) as usize;
+        let mid = fade_start + (fade_len as usize / 2);
+        let v = out[mid].0; // left channel
+        assert!((v - 0.707).abs() < 0.05, "mid fade-out ~0.707, got {}", v);
+    }
+
+    #[test]
+    fn equal_power_crossfade_sums_to_constant() {
+        use std::sync::Arc;
+
+        // Build track with two overlapping clips
+        let mut track = AudioTrack::new("Crossfade");
+
+        // Clip A: 0..200, fade-out last 100
+        let src = Arc::new(ConstOneSource);
+        let mut a = Clip::new_audio(
+            ClipTiming {
+                start_frame: 0,
+                duration_frames: 200,
+            },
+            src.clone(),
+            0,
+            false,
+            1.0,
+            0.0,
+        );
+        a.set_fade_out(100, FadeCurve::EqualPower);
+        track.add_clip(a);
+
+        // Clip B: 100..300, fade-in first 100
+        let mut b = Clip::new_audio(
+            ClipTiming {
+                start_frame: 100,
+                duration_frames: 200,
+            },
+            src.clone(),
+            0,
+            false,
+            1.0,
+            0.0,
+        );
+        b.set_fade_in(100, FadeCurve::EqualPower);
+        track.add_clip(b);
+
+        // Render 0..300
+        let mut out = vec![(0.0f32, 0.0f32); 300];
+        track.fill_next_samples(&mut out);
+
+        for i in 0..100 {
+            let theta = (i as f32) / 100.0 * std::f32::consts::FRAC_PI_2;
+            let expected = theta.cos() + theta.sin();
+            let got = out[100 + i].0;
+            assert!(
+                (got - expected).abs() < 0.05,
+                "crossfade amp mismatch at k={}, got {}, expected {}",
+                i,
+                got,
+                expected
+            );
+        }
     }
 }
