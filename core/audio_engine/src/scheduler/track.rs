@@ -1,5 +1,6 @@
 use crate::track::Track;
 
+#[derive(Debug)]
 pub struct ScheduledTrack {
     /// Track to be scheduled
     pub track: Box<dyn Track>,

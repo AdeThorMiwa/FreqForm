@@ -16,6 +16,7 @@ pub enum AudioSourceBufferKind<'a> {
 pub trait AudioSource
 where
     Self: Send,
+    Self: std::fmt::Debug,
 {
     fn fill_buffer(&mut self, buffer: AudioSourceBufferKind<'_>, frame_size: usize);
 }

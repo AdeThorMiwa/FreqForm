@@ -1,8 +1,14 @@
-use crate::{scheduler::command::ParameterChange, track::Track};
+use uuid::Uuid;
 
+use crate::{
+    scheduler::command::ParameterChange,
+    track::{Track, TrackId},
+};
+
+#[derive(Debug)]
 pub struct GainPanTrack {
     /// track id
-    id: String,
+    id: TrackId,
     inner: Box<dyn Track>,
     /// Controls signal amplitude (volume).
     /// Multiplies volume (0.0 to 1.0+)
@@ -13,9 +19,9 @@ pub struct GainPanTrack {
 }
 
 impl GainPanTrack {
-    pub fn new(id: &str, inner: Box<dyn Track>, gain: f32, pan: f32) -> Self {
+    pub fn new(inner: Box<dyn Track>, gain: f32, pan: f32) -> Self {
         Self {
-            id: id.to_string(),
+            id: Uuid::new_v4().into(),
             inner,
             gain,
             pan,
@@ -24,8 +30,16 @@ impl GainPanTrack {
 }
 
 impl Track for GainPanTrack {
-    fn id(&self) -> String {
+    fn id(&self) -> TrackId {
         self.id.clone()
+    }
+
+    fn name(&self) -> &str {
+        "GainPan"
+    }
+
+    fn track_type(&self) -> super::TrackType {
+        super::TrackType::Audio
     }
 
     fn fill_next_samples(&mut self, next_samples: &mut [(f32, f32)]) {
@@ -41,7 +55,7 @@ impl Track for GainPanTrack {
         }
     }
 
-    fn apply_param_change(&mut self, id: &str, change: &ParameterChange) {
+    fn apply_param_change(&mut self, id: TrackId, change: &ParameterChange) {
         if self.id != id {
             self.inner.apply_param_change(id, change);
             return;

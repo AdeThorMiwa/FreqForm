@@ -9,12 +9,13 @@ use crate::{
         command::{SchedulerCommand, SchedulerCommandConsumer},
         track::ScheduledTrack,
     },
-    track::Track,
+    track::{Track, TrackId, audio::AudioTrack},
 };
 
 pub mod command;
 pub mod track;
 
+#[derive(Debug)]
 pub struct LoopPoints {
     pub start_bar: u64,
     pub start_beat: u64,
@@ -24,6 +25,7 @@ pub struct LoopPoints {
     pub end_tick: u64,
 }
 
+#[derive(Debug)]
 pub struct Scheduler {
     /// a queue of future tracks
     scheduled: BinaryHeap<ScheduledTrack>,
@@ -67,10 +69,38 @@ impl Scheduler {
             SchedulerCommand::ScheduleTrack { track, start_frame } => {
                 self.schedule(track, start_frame)
             }
+            SchedulerCommand::ScheduleClip { track_id, clip } => {
+                if let Some(track) = self.active_tracks.iter_mut().find(|t| t.id() == track_id) {
+                    // Downcast trait object to AudioTrack
+                    // Uses Any downcasting — temporary until plugin routing
+                    if let Some(audio_track) = AudioTrack::downcast_to_audio_track(track) {
+                        audio_track.add_clip(clip);
+                        return;
+                    }
+
+                    log::warn!("Cannot schedule clip on non-audio track: {:?}", track_id);
+                    return;
+                }
+
+                log::warn!("Track not found for clip scheduling: {:?}", track_id);
+            }
             SchedulerCommand::ParamChange { target_id, change } => {
                 for track in self.active_tracks.iter_mut() {
-                    track.apply_param_change(&target_id, &change);
+                    track.apply_param_change(target_id.clone(), &change);
                 }
+            }
+            SchedulerCommand::StartTrack { target_id } => {
+                if let Some(track) = self.active_tracks.iter_mut().find(|t| t.id() == target_id) {
+                    if let Some(audio_track) = AudioTrack::downcast_to_audio_track(track) {
+                        audio_track.start();
+                        return;
+                    }
+
+                    log::warn!("StartTrack only supported for AudioTrack currently");
+                    return;
+                }
+
+                log::warn!("Track not found: {:?}", target_id);
             }
             SchedulerCommand::StopTrack { target_id } => {
                 self.stop_track(target_id);
@@ -185,7 +215,7 @@ impl Scheduler {
         buffer
     }
 
-    fn stop_track(&mut self, target_id: String) {
+    fn stop_track(&mut self, target_id: TrackId) {
         self.active_tracks.retain(|track| track.id() != target_id);
     }
 
@@ -361,8 +391,8 @@ mod tests {
 
     #[test]
     fn test_gain_change_applies_during_playback() {
-        let gain_track =
-            GainPanTrack::new("x-track", Box::new(ConstantTrack::new(1.0, 1.0)), 1.0, 0.0);
+        let gain_track = GainPanTrack::new(Box::new(ConstantTrack::new(1.0, 1.0)), 1.0, 0.0);
+        let track_id = gain_track.id();
         let (mut scheduler, _) = test_util::create_scheduler_with_channel();
 
         scheduler.schedule(Box::new(gain_track), 0);
@@ -370,7 +400,7 @@ mod tests {
         scheduler.next_samples(1); // activate
 
         scheduler.process_command(SchedulerCommand::ParamChange {
-            target_id: "x-track".to_string(),
+            target_id: track_id,
             change: ParameterChange::SetGain(0.25),
         });
 
@@ -381,16 +411,15 @@ mod tests {
 
     #[test]
     fn test_stop_track_removes_it_from_output() {
-        let gpt = GainPanTrack::new("test-id", Box::new(ConstantTrack::new(0.5, 0.5)), 1.0, 0.0);
+        let gpt = GainPanTrack::new(Box::new(ConstantTrack::new(0.5, 0.5)), 1.0, 0.0);
+        let target_id = gpt.id();
         let (mut sched, _) = test_util::create_scheduler_with_channel();
         sched.schedule(Box::new(gpt), 0);
 
         sched.next_samples(1); // Activate
 
         // Stop the track
-        sched.process_command(SchedulerCommand::StopTrack {
-            target_id: "test-id".into(),
-        });
+        sched.process_command(SchedulerCommand::StopTrack { target_id });
 
         let out = sched.next_samples(1);
         assert_eq!(out[0], (0.0, 0.0)); // No output = stopped
@@ -398,13 +427,10 @@ mod tests {
 
     #[test]
     fn test_restart_resets_playback_position() {
-        let samples = vec![(1.0, 1.0), (0.5, 0.5), (0.0, 0.0)];
-        let wav = WavTrack {
-            samples: samples.clone(),
-            position: 0,
-        };
+        let wav = WavTrack::from_raw_samples(vec![(1.0, 1.0), (0.5, 0.5), (0.0, 0.0)]);
 
-        let gain = GainPanTrack::new("track-id", Box::new(wav), 1.0, 0.0);
+        let gain = GainPanTrack::new(Box::new(wav), 1.0, 0.0);
+        let id = gain.id();
         let (mut sched, _) = test_util::create_scheduler_with_channel();
         sched.schedule(Box::new(gain), 0);
         sched.process_command(SchedulerCommand::Play);
@@ -413,7 +439,7 @@ mod tests {
         let out2 = sched.next_samples(1); // (0.5, 0.5)
 
         sched.process_command(SchedulerCommand::RestartTrack {
-            target_id: "track-id".to_string(),
+            target_id: id.into(),
         });
 
         let out3 = sched.next_samples(1); // should reset to (1.0, 1.0)
